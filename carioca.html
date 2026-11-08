@@ -156,6 +156,62 @@ function isRun(cards) {
   return false;
 }
 
+// Lay a run down and every joker in it gets a NAME.
+//
+//   "jokers at the end, are meant for the end cap. in your example it would be
+//    4-5-6-(7), they have to declare when they lay it down"
+//
+// A joker in a GAP names itself — 4♥ 5♥ J 7♥ can only be the 6♥. A joker on an
+// END could cap either side, so the player says which, and from then on it IS
+// that card: exchangeable, and fixed if the run is extended.
+//
+// `declared` is a list of ranks, one per joker in the order they appear in
+// `cards`. Returns { order, jokers } with the run in sequence and each joker
+// named, or { need: 'declare', choices } when the player has to say, or null
+// when the cards are not a run at all.
+function resolveRun(cards, declared) {
+  if (!isRun(cards)) return null;
+  const nat = cards.filter(c => !c.isJoker);
+  const jokers = cards.filter(c => c.isJoker);
+  const suit = nat[0].suit;
+  const idx = nat.map(c => RANKS.indexOf(c.rank));
+
+  const fits = [];
+  for (let start = 0; start < RANKS.length; start++) {
+    const slots = [];
+    for (let k = 0; k < cards.length; k++) slots.push((start + k) % RANKS.length);
+    if (!idx.every(i => slots.includes(i))) continue;
+    const gaps = slots.filter(i => !idx.includes(i));
+    if (gaps.length !== jokers.length) continue;
+    fits.push({ slots, gaps });
+  }
+  if (!fits.length) return null;
+
+  let chosen = fits[0];
+  if (fits.length > 1) {
+    const want = (declared || []).map(r => RANKS.indexOf(r)).sort((a, b) => a - b);
+    const match = fits.filter(f =>
+      f.gaps.length === want.length &&
+      [...f.gaps].sort((a, b) => a - b).every((g, i) => g === want[i]));
+    if (match.length !== 1) {
+      return { need: 'declare',
+               choices: fits.map(f => f.gaps.map(g => RANKS[g] + suit)) };
+    }
+    chosen = match[0];
+  }
+  if (!jokers.length) {
+    return { order: chosen.slots.map(i => nat.find(c => RANKS.indexOf(c.rank) === i)),
+             jokers: [] };
+  }
+  const named = chosen.gaps.map((g, n) => ({ card: jokers[n], rank: RANKS[g], suit }));
+  const order = chosen.slots.map(i => {
+    const n = nat.find(c => RANKS.indexOf(c.rank) === i);
+    if (n) return n;
+    return named.find(j => RANKS.indexOf(j.rank) === i).card;
+  });
+  return { order, jokers: named };
+}
+
 // Which rank a joker is standing in for, at each position of a laid run. Needed
 // by the exchange:
 //
@@ -172,6 +228,11 @@ function runJokerTargets(cards) {
   const nat = cards.filter(c => !c.isJoker);
   const jokers = cards.filter(c => c.isJoker);
   if (!jokers.length) return [];
+  // A laid run has already been declared, so the answer is written on the card
+  // and there is nothing left to work out.
+  if (jokers.every(j => j.standsFor)) {
+    return jokers.map(j => ({ card: j, rank: j.standsFor.rank, suit: j.standsFor.suit }));
+  }
   const suit = nat[0].suit;
   const idx = nat.map(c => RANKS.indexOf(c.rank));
 
@@ -404,7 +465,9 @@ function checkContractGroups(groups) {
   return { ok: true };
 }
 
-function layContract(seat, groups) {
+// `declares` is optional, one entry per group: a list of ranks naming the
+// jokers in that run. Only needed where a joker caps an end — see resolveRun().
+function layContract(seat, groups, declares) {
   const p = G.players[seat];
   if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
   if (p.down) return { ok: false, why: 'already down' };
@@ -415,7 +478,22 @@ function layContract(seat, groups) {
   if (new Set(flat.map(c => c.id)).size !== flat.length) {
     return { ok: false, why: 'a card cannot be in two groups' };
   }
-  groups.forEach(g => p.melds.push({ type: isTrio(g) ? 'trio' : 'run', cards: [...g] }));
+  // Resolve every run BEFORE anything moves, so a run that still needs a
+  // declaration does not leave half a contract on the table.
+  const laid = [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    if (isTrio(g)) { laid.push({ type: 'trio', cards: [...g] }); continue; }
+    const r = resolveRun(g, declares && declares[i]);
+    if (!r) return { ok: false, why: 'that is not a run' };
+    if (r.need === 'declare') {
+      return { ok: false, need: 'declare', group: i, choices: r.choices,
+               why: 'say which card the joker stands for' };
+    }
+    r.jokers.forEach(j => { j.card.standsFor = { rank: j.rank, suit: j.suit }; });
+    laid.push({ type: 'run', cards: r.order });
+  }
+  laid.forEach(m => p.melds.push(m));
   p.hand = p.hand.filter(c => !flat.includes(c));
   p.down = true;
   p.meldedThisTurn = true;
@@ -435,6 +513,16 @@ function layOff(seat, cards, meldIndex) {
   const meld = p.melds[meldIndex];
   if (!meld) return { ok: false, why: 'no such meld of yours' };
   if (!cards.every(c => p.hand.includes(c))) return { ok: false, why: 'not in your hand' };
+  // A turn ENDS with a card thrown, always:
+  //
+  //   "going out, player must discard one"
+  //
+  // So the last card in a hand can never be laid off — it is the discard, and
+  // without it the turn has no way to end. Going out is laying off everything
+  // down to one card and throwing that.
+  if (cards.length >= p.hand.length) {
+    return { ok: false, why: 'keep a card to discard — that is how a turn ends' };
+  }
   const after = [...meld.cards, ...cards];
   const stillGood = meld.type === 'trio' ? isTrio(after) : isRun(after);
   if (!stillGood) return { ok: false, why: `that does not fit your ${meld.type}` };
@@ -482,13 +570,33 @@ function endTurn(seat) {
   return { wentOut: out };
 }
 
-// Ending a turn with an empty hand without having discarded — the player laid
-// their last card onto their own melds.
-function finishTurn(seat) {
-  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+// ── THE JOKER EXCHANGE ──────────────────────────────────────────────────
+//   "if one of the other players has the card it was meant to replace, they
+//    can, on their turn, exchange the joker for the card and use the joker to
+//    complete their contract."
+//
+// The card it was meant to replace is written on it — see resolveRun(). An
+// exact match, rank and suit: a joker standing for the 6♥ is bought with the
+// 6♥ and nothing else. The player need not be down; buying a joker to finish a
+// contract is the whole point of the move.
+function exchangeJoker(seat, card, ownerSeat, meldIndex, jokerCard) {
   const p = G.players[seat];
-  if (p.hand.length !== 0) return { ok: false, why: 'you still hold cards — discard one' };
-  return { ok: true, ...endTurn(seat) };
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (!p.hand.includes(card)) return { ok: false, why: 'not in your hand' };
+  const meld = G.players[ownerSeat] && G.players[ownerSeat].melds[meldIndex];
+  if (!meld) return { ok: false, why: 'no such meld' };
+  const at = meld.cards.indexOf(jokerCard);
+  if (at < 0 || !jokerCard.isJoker) return { ok: false, why: 'that is not a joker on the table' };
+  const sf = jokerCard.standsFor;
+  if (!sf) return { ok: false, why: 'that joker stands for nothing yet' };
+  if (card.rank !== sf.rank || card.suit !== sf.suit) {
+    return { ok: false, why: `that joker is the ${sf.rank}${sf.suit}` };
+  }
+  meld.cards[at] = card;
+  p.hand = p.hand.filter(c => c !== card);
+  delete jokerCard.standsFor;
+  p.hand.push(jokerCard);
+  return { ok: true };
 }
 
 function scoreRound() {

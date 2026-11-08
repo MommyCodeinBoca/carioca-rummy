@@ -10,7 +10,7 @@ every rule here is quoted at the code that implements it.
 
 Built and tested: the rules engine and the round.
 
-    ./tests/run.sh            117 assertions
+    ./tests/run.sh            143 assertions
 
 Not built yet: the AI, the table, anything you can see.
 
@@ -28,13 +28,15 @@ made the first contract identical to the fourth.
 up next" means next to the last player to take a *turn* — the discarder. The
 stealer pays two cards out of turn and the table carries on as it was.
 
-## Things the document does not settle
+**An end-joker is declared when it is laid.** A joker in a gap names itself —
+4♥ 5♥ **J** 7♥ can only be the 6♥. On the end it could cap either side, so the
+player says which, and from then on it *is* that card: exchangeable, and fixed
+if the run grows. Laying an undeclared end-joker is refused and nothing goes
+down, because the contract is all-or-nothing.
 
-- **An end-joker is not exchangeable.** A joker in a gap — 4♥ 5♥ **J** 7♥ —
-  plainly stands for the 6♥. On the end — 4♥ 5♥ 6♥ **J** — it could be the 3♥ or
-  the 7♥, and nobody can say which, so there is no card it was "meant to
-  replace". The alternative is to have the owner declare it when they lay it.
-- **The stock running out.** Not mentioned. The discards are turned over and
-  reshuffled, keeping the face-up card where it is.
-- **Going out.** The hand empties, by whatever route the last card left it —
-  thrown to the pile or laid onto your own melds.
+**A turn always ends with a card thrown.** So the last card in a hand can never
+be laid off — going out means shedding everything down to one card and
+discarding it.
+
+**The stock running out.** Not in the document. The discards are turned over and
+reshuffled, keeping the face-up card where it is.

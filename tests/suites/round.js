@@ -113,12 +113,23 @@ window.addEventListener('load',()=>setTimeout(()=>{
     ok('two runs complete the third contract, seam and all', res.ok, res.why);
 
     // ── LAYING OFF ──────────────────────────────────────────────────────
-    seat1([...twoTrios[0],...twoTrios[1],C('7','♣')]);
+    // Two spares, so one can be laid off and one still thrown.
+    seat1([...twoTrios[0],...twoTrios[1],C('7','♣'),C('8','♦')]);
     layContract(1, twoTrios);
-    const spare=G.players[1].hand[0];
+    const spare=G.players[1].hand.find(c=>c.rank==='7');
     res=layOff(1, [spare], 0);
     ok('a fourth 7 goes onto your own trio', res.ok, res.why);
-    ok('...and the hand is empty', G.players[1].hand.length===0);
+    ok('...and one card is left to throw', G.players[1].hand.length===1);
+
+    // HER RULE: "going out, player must discard one"
+    seat1([...twoTrios[0],...twoTrios[1],C('7','♣')]);
+    layContract(1, twoTrios);
+    res=layOff(1, [G.players[1].hand[0]], 0);
+    ok('HER RULE: the LAST card can never be laid off — it is the discard',
+        res.ok===false, res.why);
+    ok('...so it is still in hand', G.players[1].hand.length===1);
+    res=discardCard(1, G.players[1].hand[0]);
+    ok('...and throwing it is how you go out', res.wentOut===true);
 
     seat1([...twoTrios[0],...twoTrios[1],C('3','♣')]);
     layContract(1, twoTrios);
@@ -126,21 +137,22 @@ window.addEventListener('load',()=>setTimeout(()=>{
     ok('a 3 does not go onto a trio of 7s', res.ok===false, res.why);
 
     // not onto anyone else's
-    seat1([...twoTrios[0],...twoTrios[1],C('7','♣')]);
+    seat1([...twoTrios[0],...twoTrios[1],C('7','♣'),C('8','♦')]);
     layContract(1, twoTrios);
     G.players[2].melds=[{type:'trio',cards:[C('7','♠'),C('7','♥'),C('7','♦')]}];
-    res=layOff(1, [G.players[1].hand[0]], 0);
+    res=layOff(1, [G.players[1].hand.find(c=>c.rank==='7')], 0);
     ok('you lay off only on your OWN melds — index is yours', res.ok===true, res.why);
     ok('...and the other player\'s meld is untouched',
         G.players[2].melds[0].cards.length===3);
 
     // ── GOING OUT ───────────────────────────────────────────────────────
     //   -20 for laying the contract and shedding everything in one turn
-    seat1([...twoTrios[0],...twoTrios[1],C('7','♣')]);
+    seat1([...twoTrios[0],...twoTrios[1],C('7','♣'),C('8','♦')]);
     layContract(1, twoTrios);
-    layOff(1, [G.players[1].hand[0]], 0);
-    res=finishTurn(1);
-    ok('emptying your hand ends the round', res.ok && res.wentOut===true, JSON.stringify(res));
+    layOff(1, [G.players[1].hand.find(c=>c.rank==='7')], 0);
+    res=discardCard(1, G.players[1].hand[0]);
+    ok('lay the contract, shed the rest, throw the last — out',
+        res.ok && res.wentOut===true, JSON.stringify(res));
     ok('...and that is worth -20', scoreRound()[1]===-20, String(scoreRound()[1]));
     ok('...while the others count their cards against them',
         scoreRound()[2]>0 && scoreRound()[3]>0, scoreRound().join(','));
