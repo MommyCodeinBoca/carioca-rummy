@@ -240,14 +240,260 @@ function resolveClaim(discarder, claims, seats) {
   return { seat: best, penalty: bestD > 1 };
 }
 
-// ── EXPOSED FOR THE TEST HARNESS ────────────────────────────────────────
+// Play goes one seat to the left, and a steal does NOT change that.
+//
+//   "the last player is not the stealer, play does not resume to stealer's
+//    left, play carry on in normal order"
+//
+// Which makes the document's own line consistent: "The person next to the last
+// player is up next" means next to the last player to take a TURN — the
+// discarder — not next to whoever reached across the table. So a steal costs
+// the stealer two cards out of turn and costs the table nothing else.
+function nextSeat(seat, seats) { return (seat + 1) % seats; }
+
+// What a steal does to the pile:
+//
+//   "The discarded pile is dead and cannot be stolen after that card is stolen.
+//    The only option is to open a new card from the stock pile."
+//
+// For ONE turn. The player whose turn it is must draw from the stock, and their
+// own discard puts a live card back on top for the seat after them. A steal by
+// the next player — distance 1, no penalty — is just that player taking the
+// discard on their own turn, so it kills nothing.
+function pileIsDeadAfter(claim) {
+  return !!(claim && claim.penalty);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// THE ROUND
+// ════════════════════════════════════════════════════════════════════════
 const G = {
   seats: 4,
-  contract: 0,
-  players: [],
+  contractIdx: 0,
+  dealer: 0,
+  turn: 0,
+  players: [],          // { hand, melds, down, wentOut, meldedThisTurn, score }
   stock: [],
   discard: [],
+  pileDead: false,      // set by a steal, for one turn only
+  phase: 'draw',        // 'draw' → 'meld' → (discard ends the turn)
+  drewThisTurn: false,
+  roundOver: false,
 };
+
+// Deterministic shuffle, so a round can be replayed from its seed — the single
+// most useful thing there is when somebody reports a hand that went wrong.
+function shuffle(cards, seed) {
+  let x = (seed >>> 0) || 1;
+  const a = [...cards];
+  for (let i = a.length - 1; i > 0; i--) {
+    x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0;
+    const j = x % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+//   "Select the dealer. Deal the number of cards required for the first
+//    contract … Place the remaining card in a stack face down in the center of
+//    the table. Place the top card to its side face up. The next player to the
+//    left of the dealer has the option of taking the open card…"
+function startRound(contractIdx, dealer, seed, seats) {
+  G.seats = seats || G.seats;
+  G.contractIdx = contractIdx;
+  G.dealer = dealer;
+  const con = CONTRACTS[contractIdx];
+  const deck = shuffle(buildDeck(2), seed === undefined ? 1 : seed);
+  G.players = [];
+  for (let i = 0; i < G.seats; i++) {
+    G.players.push({ hand: [], melds: [], down: false, wentOut: false,
+                     meldedThisTurn: false,
+                     score: (G.players[i] && G.players[i].score) || 0 });
+  }
+  let n = 0;
+  for (let c = 0; c < con.deal; c++) {
+    for (let i = 0; i < G.seats; i++) {
+      G.players[(dealer + 1 + i) % G.seats].hand.push(deck[n++]);
+    }
+  }
+  G.discard = [deck[n++]];
+  G.stock = deck.slice(n);
+  G.turn = (dealer + 1) % G.seats;
+  G.pileDead = false;
+  G.phase = 'draw';
+  G.drewThisTurn = false;
+  G.roundOver = false;
+  return G;
+}
+
+function contract() { return CONTRACTS[G.contractIdx]; }
+function topOfDiscard() { return G.discard.length ? G.discard[G.discard.length - 1] : null; }
+
+// The stock running dry. The rules do not say, and a round that cannot
+// continue is not an option, so the discards are turned over and reused —
+// keeping the top card where it is, since it is still live.
+function refillStockIfEmpty() {
+  if (G.stock.length) return false;
+  if (G.discard.length <= 1) return false;
+  const top = G.discard.pop();
+  G.stock = shuffle(G.discard, G.discard.length + 7);
+  G.discard = [top];
+  return true;
+}
+
+function drawFromStock(seat) {
+  if (G.turn !== seat || G.phase !== 'draw') return null;
+  refillStockIfEmpty();
+  if (!G.stock.length) return null;
+  const c = G.stock.shift();
+  G.players[seat].hand.push(c);
+  G.phase = 'meld';
+  G.drewThisTurn = true;
+  return c;
+}
+
+// Taking the face-up card on your own turn. Not a steal and never a penalty —
+// you are the seat at distance 1.
+function takeDiscard(seat) {
+  if (G.turn !== seat || G.phase !== 'draw') return null;
+  if (G.pileDead) return null;                 // a steal killed it for this turn
+  const c = G.discard.pop();
+  if (!c) return null;
+  G.players[seat].hand.push(c);
+  G.phase = 'meld';
+  G.drewThisTurn = true;
+  return c;
+}
+
+// A steal, out of turn. `claims` are the seats that called hold; the closest to
+// the discarder wins and pays a card from the stock.
+function applySteal(discarder, claims) {
+  const claim = resolveClaim(discarder, claims, G.seats);
+  if (!claim) return null;
+  const card = G.discard.pop();
+  if (!card) return null;
+  G.players[claim.seat].hand.push(card);
+  if (claim.penalty) {
+    refillStockIfEmpty();
+    if (G.stock.length) G.players[claim.seat].hand.push(G.stock.shift());
+  }
+  // Turn order is untouched — see nextSeat(). Only the pile changes.
+  G.pileDead = pileIsDeadAfter(claim);
+  return claim;
+}
+
+// ── LAYING THE CONTRACT ─────────────────────────────────────────────────
+//   "Players can only complete the contract as defined. No new runs or trios
+//    are allowed."
+//
+// So this is all-or-nothing and exact: the groups offered must be precisely the
+// trios and runs the contract names, no more and no fewer. A player holding
+// three trios on the 2-trio contract lays two of them.
+function checkContractGroups(groups) {
+  const con = contract();
+  if (!Array.isArray(groups)) return { ok: false, why: 'nothing offered' };
+  const trios = groups.filter(g => isTrio(g));
+  const runs  = groups.filter(g => isRun(g));
+  if (trios.length + runs.length !== groups.length) {
+    return { ok: false, why: 'every group must be a trio or a run' };
+  }
+  // A group cannot count as both, so a trio of one rank is never also a run.
+  if (trios.length !== con.trios || runs.length !== con.runs) {
+    return { ok: false, why: `this contract is ${con.name}` };
+  }
+  return { ok: true };
+}
+
+function layContract(seat, groups) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (p.down) return { ok: false, why: 'already down' };
+  const chk = checkContractGroups(groups);
+  if (!chk.ok) return chk;
+  const flat = groups.flat();
+  if (!flat.every(c => p.hand.includes(c))) return { ok: false, why: 'not in your hand' };
+  if (new Set(flat.map(c => c.id)).size !== flat.length) {
+    return { ok: false, why: 'a card cannot be in two groups' };
+  }
+  groups.forEach(g => p.melds.push({ type: isTrio(g) ? 'trio' : 'run', cards: [...g] }));
+  p.hand = p.hand.filter(c => !flat.includes(c));
+  p.down = true;
+  p.meldedThisTurn = true;
+  return { ok: true };
+}
+
+// ── LAYING OFF ──────────────────────────────────────────────────────────
+//   "Players are allowed to place more cards on their contract trios or runs.
+//    They can do this while placing their contract down or on a subsequent
+//    turn."
+//   "A player can only discard onto their own melds."
+//   "Players do not play on other players contracts either."
+function layOff(seat, cards, meldIndex) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (!p.down) return { ok: false, why: 'lay your contract first' };
+  const meld = p.melds[meldIndex];
+  if (!meld) return { ok: false, why: 'no such meld of yours' };
+  if (!cards.every(c => p.hand.includes(c))) return { ok: false, why: 'not in your hand' };
+  const after = [...meld.cards, ...cards];
+  const stillGood = meld.type === 'trio' ? isTrio(after) : isRun(after);
+  if (!stillGood) return { ok: false, why: `that does not fit your ${meld.type}` };
+  meld.cards = after;
+  p.hand = p.hand.filter(c => !cards.includes(c));
+  return { ok: true };
+}
+
+// ── THE DISCARD, WHICH ENDS THE TURN ────────────────────────────────────
+function discardCard(seat, card) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (!p.hand.includes(card)) return { ok: false, why: 'not in your hand' };
+  p.hand = p.hand.filter(c => c !== card);
+  G.discard.push(card);
+  return { ok: true, ...endTurn(seat) };
+}
+
+// Going out. The hand is empty, by whatever route the last card left it.
+//
+//   "Complete the contract and go out by discarding all the cards in the
+//    player's hand."
+//
+// A player who lays off their last card has nothing left to throw, so the turn
+// simply ends — there is no card to make a final discard with.
+function endTurn(seat) {
+  const p = G.players[seat];
+  let out = false;
+  if (p.down && p.hand.length === 0) {
+    p.wentOut = true;
+    G.roundOver = true;
+    out = true;
+  } else {
+    // The turn is over without going out, so laying the contract is no longer
+    // "this turn" — it was backwards here, clearing the flag on everyone EXCEPT
+    // the player whose turn ended, which is the one player it had to clear. A
+    // player who laid their contract and discarded would have gone on carrying
+    // the flag and scored -20 for going out two turns later.
+    p.meldedThisTurn = false;
+    G.turn = nextSeat(seat, G.seats);
+    G.phase = 'draw';
+    G.drewThisTurn = false;
+    G.pileDead = false;          // the fresh discard is live for the next seat
+  }
+  return { wentOut: out };
+}
+
+// Ending a turn with an empty hand without having discarded — the player laid
+// their last card onto their own melds.
+function finishTurn(seat) {
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  const p = G.players[seat];
+  if (p.hand.length !== 0) return { ok: false, why: 'you still hold cards — discard one' };
+  return { ok: true, ...endTurn(seat) };
+}
+
+function scoreRound() {
+  return G.players.map(p => roundScore(p));
+}
 
 document.getElementById('start-btn').addEventListener('click', () => {
   document.getElementById('start-btn').textContent = 'Started';

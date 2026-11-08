@@ -150,6 +150,17 @@ window.addEventListener('load',()=>setTimeout(()=>{
     ok('the discarder cannot claim their own card', resolveClaim(0,[0],4)===null,
         JSON.stringify(resolveClaim(0,[0],4)));
 
+    // ── TURN ORDER IS UNTOUCHED BY A STEAL ──────────────────────────────
+    //   "play does not resume to stealer's left, play carry on in normal order"
+    ok('play goes one seat to the left', nextSeat(0,4)===1 && nextSeat(3,4)===0);
+    ok('THE RULE: a steal by seat 2 still leaves seat 1 to play',
+        nextSeat(0,4)===1, 'discarder 0, stealer 2, next '+nextSeat(0,4));
+    ok('...and the pile is dead for that one turn',
+        pileIsDeadAfter(resolveClaim(0,[2],4))===true);
+    ok('but the next player taking it kills nothing — it is just their turn',
+        pileIsDeadAfter(resolveClaim(0,[1],4))===false);
+    ok('and nobody claiming kills nothing', pileIsDeadAfter(resolveClaim(0,[],4))===false);
+
    }catch(e){ R.push('FAIL — THREW: '+flat(e.message+' @ '+(e.stack||'').split('\n')[1])); }
    ok('no uncaught JS errors', errs.length===0, errs.slice(0,3).join(' | '));
    const pre=document.createElement('pre'); pre.id='results';
