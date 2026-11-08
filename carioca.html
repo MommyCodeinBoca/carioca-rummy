@@ -223,6 +223,30 @@ body {
   box-shadow: 0 10px 40px rgba(0,0,0,0.6);
 }
 #overlay h2 { margin: 0 0 6px; font-size: 1.5rem; }
+/* Who took what, shown on the seat that did it rather than only in a banner.
+     "i think i should be able to see who held it so maybe if you mark somehow
+      who is holding" */
+.took {
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4);
+  color: #fff;
+}
+.took.held {
+  background: var(--gold); color: #3a2a00; border-color: #fff3c4;
+  animation: heldPulse 1s ease-in-out 3;
+}
+@keyframes heldPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(240,196,48,0.9); }
+  50%     { box-shadow: 0 0 0 9px rgba(240,196,48,0); }
+}
+.seat-active { outline: 2px solid var(--gold); outline-offset: 7px; border-radius: 12px; }
+.flyer { position: fixed; z-index: 70; pointer-events: none;
+         transition: transform .55s cubic-bezier(.3,.7,.3,1), opacity .55s; }
+.src-glow { animation: srcGlow .55s ease-out; }
+@keyframes srcGlow {
+  0%   { filter: brightness(1.9) drop-shadow(0 0 12px var(--gold)); }
+  100% { filter: none; }
+}
+
 #hold-wrap {
   position: absolute; left: 50%; bottom: 31%; transform: translateX(-50%);
   z-index: 45; display: none; text-align: center;
@@ -1157,17 +1181,48 @@ function aiLayOff(seat) {
   return any;
 }
 
+// A turn in two halves, so the table can show the first one happening.
+//
+//   "i think maybe show in actual time, that the next player is moving the
+//    card from the pile or the stock onto their hand"
+//
+// The draw used to be folded into the whole turn and the board simply appeared
+// changed. Split, the UI can fly the card from wherever it came from into the
+// seat that took it, and say so.
+function aiDrawPhase(seat) {
+  if (G.roundOver || G.turn !== seat || G.phase !== 'draw') return null;
+  if (aiWantsDiscard(seat)) {
+    const c = takeDiscard(seat);
+    return c ? { card: c, from: 'pile' } : null;
+  }
+  const c = drawFromStock(seat);
+  return c ? { card: c, from: 'stock' } : null;
+}
+
 // One AI turn, start to finish.
 function aiTakeTurn(seat) {
   if (G.roundOver || G.turn !== seat) return false;
-  if (G.phase === 'draw') {
-    if (aiWantsDiscard(seat)) takeDiscard(seat); else drawFromStock(seat);
-  }
+  if (G.phase === 'draw') aiDrawPhase(seat);
   if (G.phase !== 'meld') return false;
   const p = G.players[seat];
   if (!p.down) {
     const out = aiCanGoOutNow(seat);
     if (out) { aiLayContract(seat); aiLayOff(seat); }
+    else aiLayContract(seat);
+  }
+  if (p.down) aiLayOff(seat);
+  const card = aiDiscardChoice(seat);
+  if (!card) return false;
+  discardCard(seat, card);
+  return true;
+}
+
+// The second half: everything after the draw.
+function aiPlayPhase(seat) {
+  if (G.roundOver || G.turn !== seat || G.phase !== 'meld') return false;
+  const p = G.players[seat];
+  if (!p.down) {
+    if (aiCanGoOutNow(seat)) { aiLayContract(seat); aiLayOff(seat); }
     else aiLayContract(seat);
   }
   if (p.down) aiLayOff(seat);
@@ -1292,11 +1347,81 @@ function renderFan(host, cards, faceUp, onClick) {
         d.classList.add('sel');
         d.style.transform = `translateY(${-lift - 20}px) rotate(${off * step}deg)`;
       }
-      d.addEventListener('click', () => onClick(c));
+      // TAP TO PICK, DRAG TO REARRANGE.
+      //
+      //   "i need to be able to move the cards together so that i can think
+      //    about my hand … once you start creating the runs, it would be
+      //    helpful to be able to move them around"
+      //
+      // Pointer events rather than HTML5 drag, so a finger works the same as a
+      // mouse. A press that never moves is a tap and selects; past a few
+      // pixels it becomes a drag and the card follows, dropping into whatever
+      // slot it is nearest. The hand is not re-rendered mid-drag — that would
+      // destroy the element under the pointer.
+      d.style.touchAction = 'none';
+      let sx = 0, sy = 0, dragging = false, active = false;
+      d.addEventListener('pointerdown', ev => {
+        sx = ev.clientX; sy = ev.clientY; dragging = false; active = true;
+        // Capture keeps the moves coming when the pointer leaves the card, but
+        // it is a nicety and not the state. Gating the drag on
+        // hasPointerCapture() meant any refusal silently killed dragging
+        // altogether, which is a bad way to depend on a convenience.
+        try { d.setPointerCapture(ev.pointerId); } catch (e) {}
+      });
+      d.addEventListener('pointercancel', () => { active = false; dragging = false; });
+      d.addEventListener('pointermove', ev => {
+        if (!active) return;
+        const dx = ev.clientX - sx, dy = ev.clientY - sy;
+        if (!dragging && Math.hypot(dx, dy) < 7) return;
+        dragging = true;
+        d.style.zIndex = '200';
+        d.style.transform = `translate(${dx}px, ${dy - lift - 14}px) rotate(0deg)`;
+      });
+      d.addEventListener('pointerup', ev => {
+        if (!active) return;
+        active = false;
+        if (!dragging) { onClick(c); return; }
+        const hand = G.players[ME].hand;
+        const from = hand.indexOf(c);
+        const centre = host.getBoundingClientRect().left + host.clientWidth / 2;
+        let to = Math.round((ev.clientX - centre) / (lap || cw) + mid);
+        to = Math.max(0, Math.min(hand.length - 1, to));
+        if (from >= 0 && to !== from) {
+          hand.splice(from, 1);
+          hand.splice(to, 0, c);
+        }
+        render();
+      });
     }
     host.appendChild(d);
   });
 }
+
+// Fly a card from where it came from to the seat that took it. Cosmetic, and
+// the whole point: without it the board simply appears changed and there is no
+// way to see that North just lifted the card you were about to hold.
+function flyCard(fromEl, toEl, card, faceUp, done) {
+  if (!fromEl || !toEl) { if (done) done(); return; }
+  const a = fromEl.getBoundingClientRect(), b = toEl.getBoundingClientRect();
+  const d = cardEl(card, faceUp);
+  d.className += ' flyer';
+  d.style.left = a.left + 'px';
+  d.style.top = a.top + 'px';
+  d.style.transform = 'translate(0,0) scale(1)';
+  document.body.appendChild(d);
+  fromEl.classList.add('src-glow');
+  setTimeout(() => fromEl.classList.remove('src-glow'), 600);
+  requestAnimationFrame(() => {
+    d.style.transform =
+      `translate(${b.left + b.width / 2 - a.left - a.width / 2}px,
+                 ${b.top + b.height / 2 - a.top - a.height / 2}px) scale(.55)`;
+    d.style.opacity = '0.25';
+  });
+  setTimeout(() => { d.remove(); if (done) done(); }, 580);
+}
+
+// What each seat last did, shown under its name until it does something else.
+const lastAction = [null, null, null, null];
 
 // ── THE WHOLE TABLE ─────────────────────────────────────────────────────
 function render() {
@@ -1317,9 +1442,12 @@ function render() {
     head.innerHTML = `<span class="seat-label">${SEAT_NAME[s]}</span>
       <span class="pill">${p.hand.length}</span>
       ${p.down ? '<span class="pill down">DOWN</span>' : ''}
+      ${lastAction[s] ? `<span class="pill took ${lastAction[s].held ? 'held' : ''}">`
+                      + `${lastAction[s].text}</span>` : ''}
       <span class="chip" title="total score / points in hand right now">
         <span class="t">${p.score}</span><span class="b">${handPoints(p.hand)}</span></span>`;
     host.appendChild(head);
+    host.classList.toggle('seat-active', G.turn === s && !G.roundOver);
     const backs = document.createElement('div');
     backs.className = 'backs micro';
     p.hand.forEach(c => backs.appendChild(cardEl(c, false)));
@@ -1336,6 +1464,7 @@ function render() {
   const stock = document.createElement('div');
   stock.style.cssText = 'text-align:center;cursor:pointer;';
   const sb = cardEl(null, false);
+  sb.id = 'src-stock';
   sb.style.cssText += 'box-shadow:0 3px 0 #7d1316, 0 5px 0 #5e0e11, 0 8px 14px rgba(0,0,0,.5);';
   stock.appendChild(sb);
   stock.insertAdjacentHTML('beforeend',
@@ -1352,11 +1481,13 @@ function render() {
     const under = cardEl(top, true);
     under.style.cssText += 'position:absolute;left:4px;top:-3px;transform:rotate(-7deg);opacity:.55;';
     const face = cardEl(top, true);
+    face.id = 'src-discard';
     face.style.cssText += 'position:absolute;left:0;top:0;';
     holder.appendChild(under); holder.appendChild(face);
     disc.appendChild(holder);
   } else {
     const gap = document.createElement('div');
+    gap.id = 'src-discard';
     gap.style.cssText = 'width:var(--card-w);height:var(--card-h);border-radius:8px;'
                       + 'border:2px dashed rgba(255,255,255,.3);';
     disc.appendChild(gap);
@@ -1412,9 +1543,22 @@ function renderActions() {
   }
   add('Discard', seln === 1 ? () => humanDiscard(selected[0]) : null, 'warn');
   if (seln) add('Clear', () => { selected = []; render(); });
+  // Sorting is the coarse version of dragging: by rank gathers the trios, by
+  // suit lines the runs up. Drag from there to taste.
+  add('⇅ rank', () => sortHand('rank'));
+  add('⇅ suit', () => sortHand('suit'));
 }
 
 // ── THE HUMAN'S TURN ────────────────────────────────────────────────────
+function sortHand(by) {
+  const r = c => c.isJoker ? 99 : RANKS.indexOf(c.rank);
+  const u = c => c.isJoker ? 9 : SUITS.indexOf(c.suit);
+  G.players[ME].hand.sort((a, b) =>
+    by === 'suit' ? (u(a) - u(b)) || (r(a) - r(b))
+                  : (r(a) - r(b)) || (u(a) - u(b)));
+  render();
+}
+
 function humanPick(card) {
   const i = selected.indexOf(card);
   if (i >= 0) selected.splice(i, 1); else selected.push(card);
@@ -1469,6 +1613,7 @@ function humanLayOff(meldIndex) {
 
 function humanDiscard(card) {
   if (G.turn !== ME || G.phase !== 'meld') return;
+  lastAction.fill(null);
   const res = discardCard(ME, card);
   if (!res.ok) { banner(res.why, 3600); return; }
   selected = [];
@@ -1518,6 +1663,12 @@ function settleClaims(discarder, aiClaims, humanClaimed) {
     const who = resolveClaim(discarder, claims, G.seats);
     applySteal(discarder, claims);
     if (who) {
+      if (who.seat !== ME) {
+        lastAction[who.seat] = { text: `✋ held the ${nameCard(top)}`, held: true };
+        flyCard(el('src-discard'), el('seat-' + who.seat), top, true);
+      }
+      claims.filter(x => x !== who.seat && x !== ME)
+            .forEach(x => { lastAction[x] = { text: '✋ wanted it' }; });
       const beaten = claims.filter(s => s !== who.seat);
       banner(`${SEAT_NAME[who.seat]} held the ${nameCard(top)}`
            + (beaten.length ? ` — ${beaten.map(s => SEAT_NAME[s]).join(' and ')} wanted it too, `
@@ -1534,13 +1685,32 @@ function stepAI() {
   if (G.roundOver) { endOfRound(); return; }
   if (G.turn === ME) { render(); return; }
   const seat = G.turn;
+  lastAction[seat] = { text: 'thinking…' };
+  render();
   setTimeout(() => {
-    const before = G.discard.length;
-    aiTakeTurn(seat);
-    render();
-    if (G.roundOver) { endOfRound(); return; }
-    if (G.discard.length >= before) afterDiscard(seat); else stepAI();
-  }, 850);
+    // THE DRAW, shown. Fly the card from the stock or the pile into the seat,
+    // and leave a note of what it took — the face-up card is public, so naming
+    // it gives nothing away that the table could not already see.
+    const src = G.phase === 'draw'
+      ? (aiWantsDiscard(seat) ? el('src-discard') : el('src-stock')) : null;
+    const drew = aiDrawPhase(seat);
+    const seatEl = el('seat-' + seat);
+    const finish = () => {
+      lastAction[seat] = drew
+        ? { text: drew.from === 'pile' ? `took the ${nameCard(drew.card)}` : 'drew' }
+        : { text: '…' };
+      render();
+      setTimeout(() => {
+        const before = G.discard.length;
+        aiPlayPhase(seat);
+        render();
+        if (G.roundOver) { endOfRound(); return; }
+        if (G.discard.length >= before) afterDiscard(seat); else stepAI();
+      }, 650);
+    };
+    if (drew && src) flyCard(src, seatEl, drew.card, drew.from === 'pile', finish);
+    else finish();
+  }, 700);
 }
 
 function endOfRound() {
