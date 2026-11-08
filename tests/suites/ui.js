@@ -184,6 +184,80 @@ window.addEventListener('load',()=>setTimeout(()=>{
      G.players[0].hand.length===2,
      h0+'  ->  '+G.players[0].hand.map(c=>c.rank+c.suit).join(' '));
 
+  // ── THE DEAD PILE LOOKS DEAD ─────────────────────────────────────────
+  //   "if the discard pile is dead for me because somebody stole the discard
+  //    then it should be grayed out or something"
+  startRound(0,0,4242,4); G.turn=0; G.phase='draw';
+  G.pileDead=false; render();
+  const liveDisc=document.getElementById('drop-discard');
+  ok('a live pile is not greyed', !liveDisc.classList.contains('dead-pile'));
+  G.pileDead=true; render();
+  const deadDisc=document.getElementById('drop-discard');
+  ok('THE REQUEST: a dead pile is greyed out',
+     deadDisc.classList.contains('dead-pile'));
+  ok('...and says why', /dead/.test(deadDisc.textContent), deadDisc.textContent.trim());
+  ok('...and there is no Take button offered',
+     ![...document.querySelectorAll('#actions .action-btn')]
+        .some(b=>/Take the face-up/.test(b.textContent)),
+     [...document.querySelectorAll('#actions .action-btn')].map(b=>b.textContent).join(' | '));
+
+  // ── THE CHIP IS THE SCORE, NOT THE HAND ──────────────────────────────
+  //   "remove the count for the cards the player have in their hand ...
+  //    Leave the running score."
+  startRound(0,0,4242,4); G.players[2].score=-30; render();
+  const chip=document.querySelector('#seat-2 .chip');
+  ok('the chip shows the running score', chip.textContent.trim()==='-30',
+     chip.textContent.trim());
+  ok('...and no longer leaks what their hand is worth',
+     !chip.querySelector('.b'));
+
+  // ── THE JOKER EXCHANGE ───────────────────────────────────────────────
+  //   "i just hit the joker situation. i can exchange to go out, but i
+  //    couldn't do the exchange"
+  startRound(2,0,4242,4);               // 2 runs
+  document.getElementById('overlay').style.display='none';
+  const jk={rank:'JOKER',suit:'★',isJoker:true,id:'jx'+Math.random()};
+  const run=[C('4','♥'),C('5','♥'),C('6','♥'),jk];
+  G.players[1].hand=[...run, C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠'),C('3','♣')];
+  G.turn=1; G.phase='meld';
+  layContract(1, [run, G.players[1].hand.filter(c=>c.suit==='♠')], [['7'], null]);
+  ok('West is down with a joker standing for the 7♥',
+     jk.standsFor && jk.standsFor.rank==='7' && jk.standsFor.suit==='♥',
+     JSON.stringify(jk.standsFor));
+
+  G.turn=0; G.phase='meld';
+  const seven7=C('7','♥');
+  G.players[0].hand=[seven7, C('2','♦'), C('8','♣')];
+  render();
+  const jkEl=document.querySelector('#seat-1 .card.jk');
+  ok('THE REPORTED CASE: the joker on the table is marked', !!jkEl);
+  ok('...and glows, because I hold the 7♥',
+     jkEl.classList.contains('swappable'), jkEl.className);
+  ok('...and the table says so', /tap the glowing Joker/
+     .test(document.getElementById('banner').textContent),
+     document.getElementById('banner').textContent.slice(0,60));
+
+  jkEl.click();
+  ok('THE FIX: tapping it makes the swap',
+     G.players[0].hand.includes(jk), 'hand='+
+     G.players[0].hand.map(c=>c.isJoker?'Jo':c.rank+c.suit).join(' '));
+  ok('...the 7♥ went into West\'s run',
+     G.players[1].melds[0].cards.includes(seven7));
+  ok('...the run is still a run', isRun(G.players[1].melds[0].cards));
+  ok('...and the joker is nameless again', !jk.standsFor);
+
+  // not offered when I do not hold the card
+  startRound(2,0,4242,4);
+  const jk2={rank:'JOKER',suit:'★',isJoker:true,id:'jy'};
+  jk2.standsFor={rank:'7',suit:'♥'};
+  G.players[1].melds=[{type:'run',cards:[C('4','♥'),C('5','♥'),C('6','♥'),jk2]}];
+  G.players[1].down=true;
+  G.turn=0; G.phase='meld'; G.players[0].hand=[C('7','♠'),C('2','♦')];
+  render();
+  const jk2El=document.querySelector('#seat-1 .card.jk');
+  ok('holding the wrong suit, the joker does not glow',
+     jk2El && !jk2El.classList.contains('swappable'));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';

@@ -148,17 +148,20 @@ body {
 .round-btn:hover { filter: brightness(1.15); }
 
 /* The score chip on the right of the sample — one per seat here. */
+/* The running score, and only that.
+     "you need to remove the count for the cards the player have in their hand.
+      that is not needed. Leave the running score."
+   It was also an information leak: how many points an opponent is holding is
+   exactly what their hand is worth, and nobody at a real table can see it. */
 .chip {
-  width: 46px; height: 46px; border-radius: 50%;
-  display: flex; flex-direction: column; overflow: hidden;
+  min-width: 40px; height: 32px; padding: 0 9px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
   border: 2px solid rgba(255,255,255,0.75);
+  background: #96e0b4; color: #0d4f2a;
   box-shadow: 0 2px 6px rgba(0,0,0,0.45);
-  font-weight: 800; font-size: 0.8rem;
+  font-weight: 800; font-size: 0.86rem;
 }
-.chip .t { flex: 1; display: flex; align-items: center; justify-content: center;
-           background: #f3a0a6; color: #7d1316; }
-.chip .b { flex: 1; display: flex; align-items: center; justify-content: center;
-           background: #96e0b4; color: #0d4f2a; }
+.chip.neg { background: #f3a0a6; color: #7d1316; }
 
 .action-btn {
   padding: 9px 18px; border-radius: 10px; cursor: pointer;
@@ -178,6 +181,24 @@ body {
    Both gestures work now, so the targets have to say which is which. */
 .droppable { outline: 3px dashed var(--gold); outline-offset: 3px; }
 .droppable.over { outline-style: solid; background: rgba(240,196,48,0.22); }
+
+/* A pile that cannot be taken should not look like one that can.
+     "if the discard pile is dead for me because somebody stole the discard
+      then it should be grayed out or something" */
+.dead-pile { filter: grayscale(1) brightness(0.6); cursor: default; }
+.dead-pile .card { box-shadow: none; }
+
+/* A joker on the table is standing in for a real card, and anyone holding that
+   card can buy it back. One you can buy right now says so. */
+.card.jk { box-shadow: 0 0 0 2px rgba(160,80,220,0.8), 0 2px 5px rgba(0,0,0,0.45); }
+.card.jk.swappable {
+  cursor: pointer;
+  animation: swapGlow 1.2s ease-in-out infinite;
+}
+@keyframes swapGlow {
+  0%,100% { box-shadow: 0 0 0 2px var(--gold), 0 0 4px var(--gold); }
+  50%     { box-shadow: 0 0 0 3px var(--gold), 0 0 16px var(--gold); }
+}
 .card.pick { cursor: pointer; }
 .meld {
   display: inline-flex; padding: 3px;
@@ -1531,8 +1552,7 @@ function render() {
       ${p.down ? '<span class="pill down">DOWN</span>' : ''}
       ${lastAction[s] ? `<span class="pill took ${lastAction[s].held ? 'held' : ''}">`
                       + `${lastAction[s].text}</span>` : ''}
-      <span class="chip" title="total score / points in hand right now">
-        <span class="t">${p.score}</span><span class="b">${handPoints(p.hand)}</span></span>`;
+      <span class="chip ${p.score < 0 ? 'neg' : ''}" title="running score">${p.score}</span>`;
     host.appendChild(head);
     host.classList.toggle('seat-active', G.turn === s && !G.roundOver);
     const backs = document.createElement('div');
@@ -1541,7 +1561,7 @@ function render() {
     host.appendChild(backs);
     const melds = document.createElement('div');
     melds.className = 'meld-row';
-    p.melds.forEach(m => melds.appendChild(meldEl(m)));
+    p.melds.forEach((m, mi) => melds.appendChild(meldEl(m, s, mi)));
     host.appendChild(melds);
   });
 
@@ -1580,29 +1600,83 @@ function render() {
                       + 'border:2px dashed rgba(255,255,255,.3);';
     disc.appendChild(gap);
   }
+  const takeable = !G.pileDead && !!top;
+  disc.classList.toggle('dead-pile', !takeable && !!top);
   disc.insertAdjacentHTML('beforeend',
-    `<div class="pill" style="margin-top:8px;">${G.pileDead ? 'dead' : 'discard'}</div>`);
-  disc.addEventListener('click', () => humanTakeDiscard());
+    `<div class="pill" style="margin-top:8px;">`
+    + (G.pileDead ? '✖ dead — a steal took it' : 'discard') + '</div>');
+  if (takeable || holdOpen) disc.addEventListener('click', () => humanTakeDiscard());
   c.appendChild(disc);
 
   // Mine.
   const mm = el('my-melds');
   mm.innerHTML = '';
   G.players[ME].melds.forEach((m, i) => {
-    const e = meldEl(m);
+    const e = meldEl(m, ME, i);
     e.style.cursor = 'pointer';
     e.addEventListener('click', () => humanLayOff(i));
     mm.appendChild(e);
   });
   renderFan(el('my-hand'), G.players[ME].hand, true, humanPick);
   renderActions();
+  // A swap you can make right now is worth saying out loud once — it is the
+  // only move on the table that lives on somebody else's melds.
+  if (G.turn === ME && G.phase === 'meld' && !G.roundOver) {
+    const swap = G.players.flatMap((p, s) => p.melds.flatMap(m =>
+      m.cards.filter(c => c.isJoker && c.standsFor && myMatchFor(c))
+             .map(c => ({ c, s }))))[0];
+    if (swap && render._said !== swap.c.id) {
+      render._said = swap.c.id;
+      banner(`You hold the ${swap.c.standsFor.rank}${swap.c.standsFor.suit} — tap the glowing `
+           + `Joker on ${swap.s === ME ? 'your' : SEAT_NAME[swap.s] + "'s"} meld to take it.`, 5000);
+    }
+    if (!swap) render._said = null;
+  }
 }
 
-function meldEl(m) {
+// A meld on the table. Any joker in it is standing in for a real card, and the
+// player holding that card may buy it back on their turn:
+//
+//   "if one of the other players has the card it was meant to replace, they
+//    can, on their turn, exchange the joker for the card and use the joker to
+//    complete their contract."
+//
+// There was no way to do this from the table at all — the rule was built and
+// tested and simply unreachable. A joker you can buy right now pulses gold;
+// tap it and the swap happens.
+function meldEl(m, ownerSeat, meldIndex) {
   const d = document.createElement('div');
   d.className = 'meld';
-  m.cards.forEach(c => d.appendChild(cardEl(c, true)));
+  m.cards.forEach(c => {
+    const e = cardEl(c, true);
+    if (c.isJoker && c.standsFor) {
+      e.classList.add('jk');
+      e.title = `standing in for the ${c.standsFor.rank}${c.standsFor.suit}`;
+      const mine = myMatchFor(c);
+      if (mine && ownerSeat !== undefined) {
+        e.classList.add('swappable');
+        e.title += ' — tap to swap your ' + nameCard(mine) + ' for it';
+        e.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const res = exchangeJoker(ME, mine, ownerSeat, meldIndex, c);
+          if (!res.ok) { banner(res.why, 4000); return; }
+          selected = [];
+          banner(`You gave the ${nameCard(mine)} and took the Joker.`, 3400);
+          render();
+        });
+      }
+    }
+    d.appendChild(e);
+  });
   return d;
+}
+
+// The card in my hand that would buy this joker back — exact rank and suit.
+function myMatchFor(joker) {
+  if (!joker.standsFor) return null;
+  if (G.turn !== ME || G.phase !== 'meld' || G.roundOver) return null;
+  return G.players[ME].hand.find(c => !c.isJoker &&
+    c.rank === joker.standsFor.rank && c.suit === joker.standsFor.suit) || null;
 }
 
 function renderActions() {
