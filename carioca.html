@@ -195,6 +195,16 @@ body {
   cursor: pointer;
   animation: swapGlow 1.2s ease-in-out infinite;
 }
+/* I hold the card that buys it, but the turn has not started. Marked, not
+   offered — so a joker worth having never looks the same as one that is not. */
+.card.jk.waiting { box-shadow: 0 0 0 2px rgba(240,196,48,0.55); opacity: 0.92; }
+.card.jk.waiting::after {
+  content: '!'; position: absolute; top: -7px; right: -7px;
+  width: 17px; height: 17px; border-radius: 50%;
+  background: var(--gold); color: #3a2a00;
+  font-size: 12px; font-weight: 900; line-height: 17px; text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
 @keyframes swapGlow {
   0%,100% { box-shadow: 0 0 0 2px var(--gold), 0 0 4px var(--gold); }
   50%     { box-shadow: 0 0 0 3px var(--gold), 0 0 16px var(--gold); }
@@ -505,6 +515,29 @@ function isRun(cards) {
 // `cards`. Returns { order, jokers } with the run in sequence and each joker
 // named, or { need: 'declare', choices } when the player has to say, or null
 // when the cards are not a run at all.
+// A declaration may be written either way — "7" or "7♥" — because `choices`
+// hands back the second and every caller passed it straight back in.
+//
+// RANKS.indexOf("7♥") is -1, so the declaration matched no gap, resolveRun()
+// answered 'declare' again and layContract() refused. The effect was that NO
+// run with a joker on its END could ever be laid, by anybody: aiLayContract()
+// returned false and the human got "say which card the joker stands for" over
+// and over on a contract that was perfectly good.
+//
+// Parsed rather than restated, so the two cannot drift apart again.
+function declaredRankIndex(decl) {
+  if (decl === undefined || decl === null) return -1;
+  const d = String(decl);
+  const i = RANKS.indexOf(d);
+  if (i >= 0) return i;
+  // Longest first, so "10♥" is not read as a "1".
+  let best = -1, bestLen = 0;
+  RANKS.forEach((r, k) => {
+    if (d.startsWith(r) && r.length > bestLen) { best = k; bestLen = r.length; }
+  });
+  return best;
+}
+
 function resolveRun(cards, declared) {
   if (!isRun(cards)) return null;
   const nat = cards.filter(c => !c.isJoker);
@@ -525,7 +558,7 @@ function resolveRun(cards, declared) {
 
   let chosen = fits[0];
   if (fits.length > 1) {
-    const want = (declared || []).map(r => RANKS.indexOf(r)).sort((a, b) => a - b);
+    const want = (declared || []).map(declaredRankIndex).sort((a, b) => a - b);
     const match = fits.filter(f =>
       f.gaps.length === want.length &&
       [...f.gaps].sort((a, b) => a - b).every((g, i) => g === want[i]));
@@ -1665,6 +1698,19 @@ function render() {
   });
   renderFan(el('my-hand'), G.players[ME].hand, true, humanPick);
   renderActions();
+  // And at the top of the turn, before the draw, when the joker is marked but
+  // not yet takeable.
+  if (G.turn === ME && G.phase === 'draw' && !G.roundOver) {
+    const soon = G.players.flatMap(p => p.melds.flatMap(m =>
+      m.cards.filter(c => c.isJoker && couldBuy(c, m)).map(c => ({ c, m }))))[0];
+    if (soon && render._soon !== soon.c.id) {
+      render._soon = soon.c.id;
+      banner(`Your ${nameCard(couldBuy(soon.c, soon.m))} buys a Joker on the table — `
+           + `take a card first, then tap it.`, 5000);
+    }
+    if (!soon) render._soon = null;
+  }
+
   // A swap you can make right now is worth saying out loud once — it is the
   // only move on the table that lives on somebody else's melds.
   if (G.turn === ME && G.phase === 'meld' && !G.roundOver) {
@@ -1703,6 +1749,12 @@ function meldEl(m, ownerSeat, meldIndex) {
       e.title = sf.suit ? `standing in for the ${sf.rank}${sf.suit}`
                         : `standing in for a ${sf.rank}`;
       const mine = myMatchFor(c, m);
+      const later = !mine && couldBuy(c, m);
+      if (later) {
+        // I hold the card but cannot act yet — say so rather than look inert.
+        e.classList.add('waiting');
+        e.title += ` — your ${nameCard(later)} buys it, but draw a card first`;
+      }
       if (mine && ownerSeat !== undefined) {
         e.classList.add('swappable');
         e.title += ' — tap to swap your ' + nameCard(mine) + ' for it';
@@ -1721,13 +1773,24 @@ function meldEl(m, ownerSeat, meldIndex) {
   return d;
 }
 
-// The card in my hand that would buy this joker back. In a run that is one
-// exact card; in a trio, any card of the rank.
-function myMatchFor(joker, meld) {
+// The card in my hand that would buy this joker back, whether or not I can act
+// on it yet. In a run that is one exact card; in a trio, any card of the rank.
+function couldBuy(joker, meld) {
   const sf = jokerStandsFor(meld, joker);
-  if (!sf) return null;
-  if (G.turn !== ME || G.phase !== 'meld' || G.roundOver) return null;
+  if (!sf || G.roundOver) return null;
   return G.players[ME].hand.find(c => cardBuysJoker(c, sf)) || null;
+}
+
+// …and whether the swap can be made right now. It cannot during the draw: the
+// turn has not really started until a card is taken.
+//
+// Asked twice: "how do i take a joker from someone's hand?" — once answered,
+// and asked again, which is the game failing to say anything rather than her
+// failing to read. Looking at the table before drawing, a joker she could buy
+// was indistinguishable from one she could not.
+function myMatchFor(joker, meld) {
+  if (G.turn !== ME || G.phase !== 'meld') return null;
+  return couldBuy(joker, meld);
 }
 
 function renderActions() {

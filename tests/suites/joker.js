@@ -111,6 +111,39 @@ window.addEventListener('load',()=>setTimeout(()=>{
     res=exchangeJoker(2, C('7','♥'), 1, 0, jk);
     ok('you cannot exchange out of turn', res.ok===false, res.why);
 
+    // ── A DECLARATION MAY BE WRITTEN EITHER WAY ─────────────────────────
+    // resolveRun() hands back choices as "7♥" and every caller passed that
+    // straight back in, where RANKS.indexOf("7♥") is -1. The declaration
+    // matched no gap, the run asked to be declared again, and layContract()
+    // refused — so NO run with a joker on its end could be laid by anybody.
+    const endJ=J();
+    const endCards=[C('4','♥'),C('5','♥'),C('6','♥'),endJ];
+    const asked=resolveRun(endCards);
+    ok('the choices are offered with their suit',
+        /♥/.test(JSON.stringify(asked.choices)), JSON.stringify(asked.choices));
+    ok('THE BUG: a declaration in that same form now resolves',
+        !resolveRun(endCards, asked.choices[asked.choices.length-1]).need,
+        JSON.stringify(asked.choices[asked.choices.length-1]));
+    ok('...and the bare rank still does',
+        !resolveRun(endCards, ['7']).need);
+    ok('...and a 10 is not read as a 1',
+        declaredRankIndex('10♦')===RANKS.indexOf('10'),
+        String(declaredRankIndex('10♦')));
+    ok('...while nonsense still asks again',
+        !!resolveRun(endCards, ['Z']).need);
+
+    // and the whole way through: the AI can lay such a run
+    startRound(2, 0, 12345, 4);
+    const aj=J();
+    G.players[2].hand=[C('4','♥'),C('5','♥'),C('6','♥'),aj,
+                       C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠'),C('3','♣')];
+    G.turn=2; G.phase='meld';
+    ok('THE EFFECT: the AI can lay a run capped by a joker',
+        aiLayContract(2)===true && G.players[2].melds.length===2,
+        G.players[2].melds.length+' melds');
+    ok('...and the joker was named, so it can be bought back',
+        !!aj.standsFor, JSON.stringify(aj.standsFor));
+
    }catch(e){ R.push('FAIL — THREW: '+flat(e.message+' @ '+(e.stack||'').split('\n')[1])); }
    ok('no uncaught JS errors', errs.length===0, errs.slice(0,3).join(' | '));
    const pre=document.createElement('pre'); pre.id='results';
