@@ -4,10 +4,269 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Carioca Rummy</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   THE TABLE
+   Built to the look she asked for — 'carioca card sample.PNG': a bright
+   green damask felt, hands fanned in an arc, red-and-gold card backs with a
+   medallion, and gold-rimmed round buttons at the corners.
+   Everything is drawn in CSS and inline SVG. No external file is fetched, so
+   the whole game stays one file that works with no signal.
+   ══════════════════════════════════════════════════════════════════════ */
+:root {
+  --card-w: 76px;
+  --card-h: 108px;
+  --felt: #1a8f1a;
+  --felt-dark: #0d6b14;
+  --gold: #f0c430;
+  --gold-dim: #b8902a;
+  --back-red: #a81d20;
+  --back-red-dk: #7d1316;
+  --ink: #16281a;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  font-family: 'Trebuchet MS', 'Gill Sans', system-ui, sans-serif;
+  color: #fff;
+}
+/* The felt. A deep green base, a radial lift in the middle so the centre of
+   the table reads as lit, and a scrollwork motif tiled over it. */
+body {
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><g fill='none' stroke='%2345c445' stroke-width='2.5' stroke-linecap='round' opacity='0.55'><path d='M20 80c0-30 20-50 45-50M20 80c0 30 20 50 45 50'/><path d='M30 55c12 4 20 12 24 24M30 105c12-4 20-12 24-24'/><path d='M100 20c25 8 40 30 40 60s-15 52-40 60'/><path d='M118 45c-10 8-14 20-12 34M118 115c-10-8-14-20-12-34'/><circle cx='80' cy='80' r='6'/><path d='M80 62c8 6 8 12 0 18-8-6-8-12 0-18M80 98c8-6 8-12 0-18-8 6-8 12 0 18'/></g></svg>"),
+    radial-gradient(ellipse at 50% 45%, #2bb02b 0%, var(--felt) 45%, var(--felt-dark) 100%);
+  background-size: 160px 160px, cover;
+}
+
+/* ── CARDS ──────────────────────────────────────────────────────────── */
+.card {
+  position: relative;
+  width: var(--card-w); height: var(--card-h);
+  border-radius: calc(var(--card-w) * 0.09);
+  background: #fdfdfb;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.18);
+  user-select: none; flex: 0 0 auto;
+}
+.card.red  { color: #c0191c; }
+.card.black{ color: #15151c; }
+
+/* The corner index, big and bold as in the sample: rank over suit, top-left,
+   and the same upside down bottom-right. */
+.card .ix {
+  position: absolute; display: flex; flex-direction: column;
+  align-items: center; line-height: 0.92;
+  font-weight: 800; font-size: calc(var(--card-w) * 0.30);
+}
+.card .ix.tl { top: 3%; left: 5%; }
+.card .ix.br { bottom: 3%; right: 5%; transform: rotate(180deg); }
+.card .ix .s { font-size: calc(var(--card-w) * 0.26); }
+
+/* The body: a pip grid for 2–10, a large glyph for A, and a panel for courts. */
+.card .pips {
+  position: absolute; inset: 14% 22%;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  justify-items: center; align-items: center;
+  font-size: calc(var(--card-w) * 0.24); line-height: 1;
+}
+.card .pips.one { grid-template-columns: 1fr; }
+.card .pips span.mid { grid-column: 1 / -1; }
+.card .pips span.flip { transform: rotate(180deg); }
+.card .big {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  font-size: calc(var(--card-w) * 0.52);
+}
+.card .court {
+  position: absolute; inset: 15% 17%;
+  border: 2px solid currentColor; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: calc(var(--card-w) * 0.40); font-weight: 800;
+  background: linear-gradient(160deg, rgba(240,196,48,0.22), rgba(192,25,28,0.12));
+}
+.card.joker .court {
+  font-size: calc(var(--card-w) * 0.22); letter-spacing: 1px;
+  background: linear-gradient(160deg, rgba(240,196,48,0.35), rgba(120,30,160,0.18));
+}
+
+/* The back: red with a gold lattice and a medallion, as in the sample. */
+.card.back {
+  background:
+    repeating-linear-gradient(45deg,  rgba(240,196,48,0.55) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(-45deg, rgba(240,196,48,0.55) 0 2px, transparent 2px 7px),
+    linear-gradient(160deg, var(--back-red) 0%, var(--back-red-dk) 100%);
+  border: calc(var(--card-w) * 0.055) solid var(--gold);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(255,255,255,0.12);
+}
+.card.back::after {
+  content: 'C';
+  position: absolute; inset: 0; margin: auto;
+  width: 44%; height: 31%;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #d8332f, var(--back-red-dk));
+  border: 2px solid var(--gold);
+  color: #fff6d8; font-weight: 800; font-size: calc(var(--card-w) * 0.30);
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+/* ── THE FAN ────────────────────────────────────────────────────────────
+   Her sample arcs both hands. Each card is rotated about a pivot far below
+   the fan, which is what gives the even sweep — rotating in place would
+   splay them without curving the row. */
+/* The arc. Each card is placed by hand and rotated about its own base, with
+   a parabolic lift so the middle of the fan rides highest — the arch in her
+   sample. Rotating about a pivot far below the row looked right on paper and
+   threw the outer cards off the bottom of the screen, because the offset and
+   the rotation were both moving them. */
+.fan { position: relative; }
+.fan .card { position: absolute; bottom: 0; transform-origin: 50% 100%; }
+
+/* ── SEATS AND THE CENTRE ───────────────────────────────────────────── */
+#table { position: relative; width: 100%; height: 100%; }
+.seat-label {
+  font-weight: 700; letter-spacing: 0.04em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 10px; border-radius: 999px;
+  background: rgba(0,0,0,0.34); border: 1px solid rgba(240,196,48,0.5);
+  font-size: 0.78rem; font-weight: 700;
+}
+.pill.down { background: rgba(240,196,48,0.9); color: #3a2a00; border-color: #fff3c4; }
+
+/* Gold-rimmed round buttons, top corners, as in the sample. */
+.round-btn {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 34% 28%, #39b63b, #11711a);
+  border: 3px solid var(--gold); color: #fff;
+  font-size: 1.15rem; font-weight: 800; cursor: pointer;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+}
+.round-btn:hover { filter: brightness(1.15); }
+
+/* The score chip on the right of the sample — one per seat here. */
+.chip {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.75);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+  font-weight: 800; font-size: 0.8rem;
+}
+.chip .t { flex: 1; display: flex; align-items: center; justify-content: center;
+           background: #f3a0a6; color: #7d1316; }
+.chip .b { flex: 1; display: flex; align-items: center; justify-content: center;
+           background: #96e0b4; color: #0d4f2a; }
+
+.action-btn {
+  padding: 9px 18px; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(#2fa93a, #16761f);
+  border: 2px solid var(--gold); color: #fff;
+  font-weight: 800; font-size: 0.92rem;
+  box-shadow: 0 3px 7px rgba(0,0,0,0.42);
+}
+.action-btn:disabled { opacity: 0.4; cursor: default; }
+.action-btn.warn { background: linear-gradient(#d8a21e, #a1740c); }
+
+.card.sel { outline: 3px solid var(--gold); outline-offset: 1px; }
+.card.pick { cursor: pointer; }
+.meld {
+  display: inline-flex; padding: 3px;
+  background: rgba(0,0,0,0.2); border-radius: 7px;
+  border: 1px solid rgba(240,196,48,0.35);
+}
+.meld .card { margin-left: calc(var(--card-w) * -0.58); }
+.meld .card:first-child { margin-left: 0; }
+
+/* Smaller cards are a smaller --card-w, never a transform. `scale()` leaves
+   the layout box at full size, which is what filled the table with big empty
+   rectangles behind the melds. */
+.mini  { --card-w: 40px; --card-h: 57px; }
+.micro { --card-w: 30px; --card-h: 43px; }
+
+/* ── THE LAYOUT ───────────────────────────────────────────────────────
+   A column, not absolute positions. North's melds used to flow down over
+   the stock and the hand ran off the bottom of the screen; rows cannot
+   collide. */
+#table { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+#row-north { flex: 0 0 auto; padding: 54px 10px 4px; flex-direction: column; gap: 5px; }
+#row-mid   { flex: 1 1 auto; min-height: 0; align-items: center; }
+#row-mid > .side { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+                   align-items: center; gap: 5px; }
+#centre    { flex: 0 0 auto; display: flex; gap: 40px; align-items: center; }
+#row-melds { flex: 0 0 auto; padding: 4px 10px; flex-wrap: wrap; min-height: 10px; }
+#row-acts  { flex: 0 0 auto; padding: 6px 10px 8px; }
+#row-hand  { flex: 0 0 auto; position: relative; }
+.meld-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.backs { display: flex; justify-content: center; }
+.backs .card { margin-left: calc(var(--card-w) * -0.66); }
+.backs .card:first-child { margin-left: 0; }
+
+#banner {
+  position: absolute; left: 50%; top: 16%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.78); border: 2px solid var(--gold);
+  border-radius: 12px; padding: 12px 22px; font-weight: 700;
+  max-width: 80%; text-align: center; display: none; z-index: 40;
+}
+#overlay {
+  position: absolute; inset: 0; z-index: 60;
+  background: rgba(0,0,0,0.62);
+  display: flex; align-items: center; justify-content: center;
+}
+#overlay .panel {
+  background: linear-gradient(165deg, #15711c, #0b4a12);
+  border: 3px solid var(--gold); border-radius: 18px;
+  padding: 26px 34px; text-align: center; max-width: 92%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+}
+#overlay h2 { margin: 0 0 6px; font-size: 1.5rem; }
+#hold-wrap {
+  position: absolute; left: 50%; bottom: 31%; transform: translateX(-50%);
+  z-index: 45; display: none; text-align: center;
+}
+#hold-btn {
+  padding: 13px 30px; font-size: 1.1rem;
+  background: linear-gradient(#e8b61d, #b07d07); color: #2b1d00;
+}
+#hold-bar { height: 5px; margin-top: 6px; background: rgba(0,0,0,0.4);
+            border-radius: 3px; overflow: hidden; }
+#hold-bar i { display: block; height: 100%; background: var(--gold); width: 100%; }
+</style>
 </head>
 <body>
-<div id="app"><button id="start-btn">Start</button></div>
+<div id="table">
+  <button class="round-btn" id="btn-menu" style="position:absolute;top:12px;left:12px;">☰</button>
+  <button class="round-btn" id="btn-help" style="position:absolute;top:12px;left:66px;">?</button>
+  <button class="round-btn" id="btn-settings" style="position:absolute;top:12px;right:12px;">⚙</button>
+
+  <div id="contract-line" style="position:absolute;top:14px;left:50%;transform:translateX(-50%);text-align:center;z-index:5;"></div>
+
+  <div class="row" id="row-north"><div id="seat-2" class="mini"></div></div>
+  <div class="row" id="row-mid">
+    <div class="side mini" id="seat-1"></div>
+    <div id="centre"></div>
+    <div class="side mini" id="seat-3"></div>
+  </div>
+  <div class="row" id="row-melds"><div id="my-melds" class="meld-row"></div></div>
+  <div class="row" id="row-acts"><div id="actions" class="row"></div></div>
+  <div id="row-hand"><div id="my-hand" class="fan"></div></div>
+
+  <div id="hold-wrap">
+    <button class="action-btn" id="hold-btn">✋ HOLD</button>
+    <div id="hold-bar"><i></i></div>
+  </div>
+  <div id="banner"></div>
+  <div id="overlay"><div class="panel">
+    <h2>Carioca Rummy</h2>
+    <p style="opacity:.85;margin:4px 0 16px;">Seven contracts. Fewest points wins.</p>
+    <button class="action-btn" id="start-btn">Deal</button>
+  </div></div>
+</div>
 <script>
+
 // ════════════════════════════════════════════════════════════════════════
 // CARIOCA RUMMY — rules engine
 //
@@ -939,9 +1198,416 @@ function playRound(contractIdx, dealer, seed, seats, maxTurns) {
   return { turns, over: G.roundOver, scores: scoreRound() };
 }
 
-document.getElementById('start-btn').addEventListener('click', () => {
-  document.getElementById('start-btn').textContent = 'Started';
+
+// ════════════════════════════════════════════════════════════════════════
+// THE TABLE — rendering and the human's turn
+// ════════════════════════════════════════════════════════════════════════
+const ME = 0;
+const SEAT_NAME = ['You', 'West', 'North', 'East'];
+let selected = [];            // cards picked up out of the hand
+let holdTimer = null;
+
+const el = id => document.getElementById(id);
+function banner(text, ms) {
+  const b = el('banner');
+  b.textContent = text; b.style.display = 'block';
+  clearTimeout(banner._t);
+  banner._t = setTimeout(() => { b.style.display = 'none'; }, ms || 2600);
+}
+
+// ── DRAWING A CARD ──────────────────────────────────────────────────────
+const PIPS = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10 };
+function cardEl(c, faceUp) {
+  const d = document.createElement('div');
+  d.className = 'card' + (faceUp ? '' : ' back');
+  if (!faceUp) return d;
+  if (c.isJoker) {
+    d.classList.add('black', 'joker');
+    d.innerHTML = `<div class="ix tl">★<span class="s">J</span></div>
+                   <div class="court">JOKER</div>
+                   <div class="ix br">★<span class="s">J</span></div>`;
+    if (c.standsFor) d.title = `standing in for the ${c.standsFor.rank}${c.standsFor.suit}`;
+    return d;
+  }
+  d.classList.add(RED_SUITS.includes(c.suit) ? 'red' : 'black');
+  const ix = `<div class="ix tl">${c.rank}<span class="s">${c.suit}</span></div>
+              <div class="ix br">${c.rank}<span class="s">${c.suit}</span></div>`;
+  let body;
+  if (PIPS[c.rank]) {
+    const n = PIPS[c.rank];
+    let cells = '';
+    for (let i = 0; i < n; i++) {
+      const flip = i >= Math.ceil(n / 2) ? ' flip' : '';
+      const mid  = (n % 2 === 1 && i === n - 1) ? ' mid' : '';
+      cells += `<span class="${flip}${mid}">${c.suit}</span>`;
+    }
+    body = `<div class="pips${n <= 3 ? ' one' : ''}">${cells}</div>`;
+  } else if (c.rank === 'A') {
+    body = `<div class="big">${c.suit}</div>`;
+  } else {
+    body = `<div class="court">${c.rank}${c.suit}</div>`;
+  }
+  return Object.assign(d, { innerHTML: ix + body });
+}
+
+// ── THE FAN ─────────────────────────────────────────────────────────────
+// Her sample arcs the hand, so each card gets a rotation about a pivot well
+// below the row. The spread narrows as the hand grows, so thirteen cards sit
+// in the same width as seven rather than running off the table.
+function renderFan(host, cards, faceUp, onClick) {
+  host.innerHTML = '';
+  const n = cards.length;
+  if (!n) { host.style.height = 'var(--card-h)'; return; }
+  const cw = parseFloat(getComputedStyle(document.documentElement)
+                        .getPropertyValue('--card-w')) || 76;
+  const ch = cw * 1.42;
+  const mid = (n - 1) / 2;
+  const room = (host.clientWidth || window.innerWidth) - 24;
+  const lap = n > 1 ? Math.min(cw * 0.82, (room - cw) / (n - 1)) : 0;
+  const step = Math.min(4.5, 34 / Math.max(1, n));     // degrees between cards
+  const arc  = Math.min(22, 4 + n * 1.4);              // how high the middle rides
+  // The height goes on the FAN, not the row around it. The cards are absolute
+  // and sit on the fan's own baseline, so a fan of zero height hung them above
+  // it — over the action buttons — with the reserved space left empty below.
+  //
+  // And a rotated card hangs BELOW its own baseline: turning it about its
+  // bottom centre swings the far corner down by half a width times the sine of
+  // the angle. The outermost card was 11px past the bottom of the screen and
+  // its corners were being shaved off.
+  const tilt = (step * mid) * Math.PI / 180;
+  const drop = Math.ceil(Math.abs(Math.sin(tilt)) * cw / 2) + 2;
+  const rise = Math.ceil(Math.abs(Math.sin(tilt)) * ch);
+  host.style.height = Math.round(ch + arc + rise + drop + 6) + 'px';
+  cards.forEach((c, i) => {
+    const d = cardEl(c, faceUp);
+    const off = i - mid;
+    const lift = mid ? arc * (1 - Math.pow(off / mid, 2)) : arc;
+    d.style.left = `calc(50% + ${off * lap}px - var(--card-w) / 2)`;
+    d.style.bottom = drop + 'px';
+    d.style.transform = `translateY(${-lift}px) rotate(${off * step}deg)`;
+    d.style.zIndex = String(10 + i);
+    if (onClick) {
+      d.classList.add('pick');
+      if (selected.includes(c)) {
+        d.classList.add('sel');
+        d.style.transform = `translateY(${-lift - 20}px) rotate(${off * step}deg)`;
+      }
+      d.addEventListener('click', () => onClick(c));
+    }
+    host.appendChild(d);
+  });
+}
+
+// ── THE WHOLE TABLE ─────────────────────────────────────────────────────
+function render() {
+  if (!G.players.length) return;
+  const con = contract();
+  el('contract-line').innerHTML =
+    `<div class="seat-label" style="font-size:1.05rem;">Contract ${G.contractIdx + 1} of 7
+       — <span style="color:var(--gold)">${con.name}</span></div>
+     <div style="opacity:.78;font-size:.82rem;">${G.turn === ME ? 'Your turn' : SEAT_NAME[G.turn] + "'s turn"}</div>`;
+
+  // The three AI seats: a small fan of backs, a count, and their melds.
+  [1, 2, 3].forEach(s => {
+    const p = G.players[s];
+    const host = el('seat-' + s);
+    host.innerHTML = '';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;gap:7px;align-items:center;justify-content:center;';
+    head.innerHTML = `<span class="seat-label">${SEAT_NAME[s]}</span>
+      <span class="pill">${p.hand.length}</span>
+      ${p.down ? '<span class="pill down">DOWN</span>' : ''}
+      <span class="chip" title="total score / points in hand right now">
+        <span class="t">${p.score}</span><span class="b">${handPoints(p.hand)}</span></span>`;
+    host.appendChild(head);
+    const backs = document.createElement('div');
+    backs.className = 'backs micro';
+    p.hand.forEach(c => backs.appendChild(cardEl(c, false)));
+    host.appendChild(backs);
+    const melds = document.createElement('div');
+    melds.className = 'meld-row';
+    p.melds.forEach(m => melds.appendChild(meldEl(m)));
+    host.appendChild(melds);
+  });
+
+  // Stock and discard, centre table.
+  const c = el('centre');
+  c.innerHTML = '';
+  const stock = document.createElement('div');
+  stock.style.cssText = 'text-align:center;cursor:pointer;';
+  const sb = cardEl(null, false);
+  sb.style.cssText += 'box-shadow:0 3px 0 #7d1316, 0 5px 0 #5e0e11, 0 8px 14px rgba(0,0,0,.5);';
+  stock.appendChild(sb);
+  stock.insertAdjacentHTML('beforeend',
+    `<div class="pill" style="margin-top:8px;">${G.stock.length} left</div>`);
+  stock.addEventListener('click', () => humanDraw());
+  c.appendChild(stock);
+
+  const disc = document.createElement('div');
+  disc.style.cssText = 'text-align:center;cursor:pointer;min-width:var(--card-w);';
+  const top = topOfDiscard();
+  if (top) {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:relative;height:var(--card-h);';
+    const under = cardEl(top, true);
+    under.style.cssText += 'position:absolute;left:4px;top:-3px;transform:rotate(-7deg);opacity:.55;';
+    const face = cardEl(top, true);
+    face.style.cssText += 'position:absolute;left:0;top:0;';
+    holder.appendChild(under); holder.appendChild(face);
+    disc.appendChild(holder);
+  } else {
+    const gap = document.createElement('div');
+    gap.style.cssText = 'width:var(--card-w);height:var(--card-h);border-radius:8px;'
+                      + 'border:2px dashed rgba(255,255,255,.3);';
+    disc.appendChild(gap);
+  }
+  disc.insertAdjacentHTML('beforeend',
+    `<div class="pill" style="margin-top:8px;">${G.pileDead ? 'dead' : 'discard'}</div>`);
+  disc.addEventListener('click', () => humanTakeDiscard());
+  c.appendChild(disc);
+
+  // Mine.
+  const mm = el('my-melds');
+  mm.innerHTML = '';
+  G.players[ME].melds.forEach((m, i) => {
+    const e = meldEl(m);
+    e.style.cursor = 'pointer';
+    e.addEventListener('click', () => humanLayOff(i));
+    mm.appendChild(e);
+  });
+  renderFan(el('my-hand'), G.players[ME].hand, true, humanPick);
+  renderActions();
+}
+
+function meldEl(m) {
+  const d = document.createElement('div');
+  d.className = 'meld';
+  m.cards.forEach(c => d.appendChild(cardEl(c, true)));
+  return d;
+}
+
+function renderActions() {
+  const bar = el('actions');
+  bar.innerHTML = '';
+  const p = G.players[ME];
+  const mine = G.turn === ME && !G.roundOver;
+  const add = (label, fn, cls) => {
+    const b = document.createElement('button');
+    b.className = 'action-btn' + (cls ? ' ' + cls : '');
+    b.textContent = label;
+    b.disabled = !fn;
+    if (fn) b.addEventListener('click', fn);
+    bar.appendChild(b);
+    return b;
+  };
+  if (!mine) { add(`${SEAT_NAME[G.turn]} is playing…`, null); return; }
+  if (G.phase === 'draw') {
+    add('Draw from stock', humanDraw);
+    if (!G.pileDead && topOfDiscard()) add('Take the face-up card', humanTakeDiscard);
+    return;
+  }
+  const seln = selected.length;
+  if (!p.down) {
+    add(`Lay the contract (${contract().name})`, seln ? humanLayContract : null);
+  }
+  add('Discard', seln === 1 ? () => humanDiscard(selected[0]) : null, 'warn');
+  if (seln) add('Clear', () => { selected = []; render(); });
+}
+
+// ── THE HUMAN'S TURN ────────────────────────────────────────────────────
+function humanPick(card) {
+  const i = selected.indexOf(card);
+  if (i >= 0) selected.splice(i, 1); else selected.push(card);
+  render();
+}
+
+function humanDraw() {
+  if (G.turn !== ME || G.phase !== 'draw') return;
+  const c = drawFromStock(ME);
+  if (!c) { banner('The stock is empty.'); return; }
+  banner(`You drew the ${nameCard(c)}.`, 1600);
+  render();
+}
+
+function humanTakeDiscard() {
+  if (G.turn !== ME || G.phase !== 'draw') return;
+  if (G.pileDead) { banner('A steal killed the pile — draw from the stock.'); return; }
+  const c = takeDiscard(ME);
+  if (!c) { banner('Nothing to take.'); return; }
+  render();
+}
+
+// The selection is handed to the engine as groups. The player picks all the
+// cards for the contract at once and the game works out which are the trios
+// and which are the runs — the same job readHand() already does for the AI.
+function humanLayContract() {
+  const con = contract();
+  const groups = buildContract(selected, con);
+  if (!groups) {
+    banner(`Those cards are not ${con.name}. Pick exactly the contract.`, 4200);
+    return;
+  }
+  let declares = groups.map(g => {
+    if (isTrio(g)) return null;
+    const r = resolveRun(g);
+    return (r && r.need) ? r.choices[r.choices.length - 1] : null;
+  });
+  const res = layContract(ME, groups, declares);
+  if (!res.ok) { banner(res.why, 4200); return; }
+  selected = [];
+  banner('Contract down!', 1800);
+  render();
+}
+
+function humanLayOff(meldIndex) {
+  if (G.turn !== ME || G.phase !== 'meld' || !selected.length) return;
+  const res = layOff(ME, selected, meldIndex);
+  if (!res.ok) { banner(res.why, 3600); return; }
+  selected = [];
+  render();
+}
+
+function humanDiscard(card) {
+  if (G.turn !== ME || G.phase !== 'meld') return;
+  const res = discardCard(ME, card);
+  if (!res.ok) { banner(res.why, 3600); return; }
+  selected = [];
+  render();
+  if (res.wentOut) { endOfRound(); return; }
+  afterDiscard(ME);
+}
+
+function nameCard(c) {
+  return c.isJoker ? 'Joker' : c.rank + c.suit;
+}
+
+// ── THE HOLD WINDOW ─────────────────────────────────────────────────────
+// Nobody races. Every seat decides privately, the window closes, and the
+// closest claimant to the discarder wins — see resolveClaim(). An AI decides
+// in microseconds and a person does not, so reaction time is kept out of it.
+const HOLD_MS = 3500;
+function afterDiscard(discarder) {
+  const top = topOfDiscard();
+  const aiClaims = aiClaimants(discarder, ME);
+  const iCould = discarder !== ME && top && G.turn !== ME;
+  if (!iCould) { settleClaims(discarder, aiClaims, false); return; }
+  // Offer the window to the human.
+  let mine = false;
+  const wrap = el('hold-wrap'), bar = el('hold-bar').firstElementChild;
+  wrap.style.display = 'block';
+  bar.style.transition = 'none'; bar.style.width = '100%';
+  requestAnimationFrame(() => {
+    bar.style.transition = `width ${HOLD_MS}ms linear`; bar.style.width = '0%';
+  });
+  const btn = el('hold-btn');
+  const onHold = () => { mine = true; btn.disabled = true; btn.textContent = '✋ held'; };
+  btn.disabled = false; btn.textContent = '✋ HOLD';
+  btn.onclick = onHold;
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {
+    wrap.style.display = 'none';
+    settleClaims(discarder, aiClaims, mine);
+  }, HOLD_MS);
+}
+
+function settleClaims(discarder, aiClaims, humanClaimed) {
+  const claims = [...aiClaims];
+  if (humanClaimed) claims.push(ME);
+  if (claims.length) {
+    const top = topOfDiscard();
+    const who = resolveClaim(discarder, claims, G.seats);
+    applySteal(discarder, claims);
+    if (who) {
+      const beaten = claims.filter(s => s !== who.seat);
+      banner(`${SEAT_NAME[who.seat]} held the ${nameCard(top)}`
+           + (beaten.length ? ` — ${beaten.map(s => SEAT_NAME[s]).join(' and ')} wanted it too, `
+                            + `but ${SEAT_NAME[who.seat]} sits closer to ${SEAT_NAME[discarder]}.` : '')
+           + (who.penalty ? ' Penalty card drawn.' : ''), 4200);
+    }
+  }
+  render();
+  stepAI();
+}
+
+// ── THE AI SEATS ────────────────────────────────────────────────────────
+function stepAI() {
+  if (G.roundOver) { endOfRound(); return; }
+  if (G.turn === ME) { render(); return; }
+  const seat = G.turn;
+  setTimeout(() => {
+    const before = G.discard.length;
+    aiTakeTurn(seat);
+    render();
+    if (G.roundOver) { endOfRound(); return; }
+    if (G.discard.length >= before) afterDiscard(seat); else stepAI();
+  }, 850);
+}
+
+function endOfRound() {
+  render();
+  const scores = scoreRound();
+  G.players.forEach((p, i) => { p.score += scores[i]; });
+  const rows = G.players.map((p, i) =>
+    `<tr><td style="text-align:left;padding:3px 14px 3px 0;">${SEAT_NAME[i]}</td>
+         <td style="padding:3px 14px 3px 0;">${scores[i] > 0 ? '+' : ''}${scores[i]}</td>
+         <td style="font-weight:800;">${p.score}</td></tr>`).join('');
+  const last = G.contractIdx >= CONTRACTS.length - 1;
+  const best = Math.min(...G.players.map(p => p.score));
+  el('overlay').innerHTML = `<div class="panel">
+      <h2>${last ? 'Game over' : 'Round over'}</h2>
+      <p style="opacity:.85;margin:2px 0 12px;">
+        ${SEAT_NAME[G.players.findIndex(p => p.wentOut)] || 'Nobody'} went out.</p>
+      <table style="margin:0 auto 16px;"><tr style="opacity:.7;font-size:.8rem;">
+        <td style="text-align:left;">seat</td><td>round</td><td>total</td></tr>${rows}</table>
+      ${last ? `<p style="color:var(--gold);font-weight:800;margin-bottom:14px;">
+                  ${SEAT_NAME[G.players.findIndex(p => p.score === best)]} wins with ${best}.</p>` : ''}
+      <button class="action-btn" id="next-btn">${last ? 'Play again' : 'Next contract'}</button>
+    </div>`;
+  el('overlay').style.display = 'flex';
+  el('next-btn').addEventListener('click', () => {
+    const keep = G.players.map(p => p.score);
+    const nextC = last ? 0 : G.contractIdx + 1;
+    const nextD = (G.dealer + 1) % G.seats;
+    newRound(nextC, nextD, last ? null : keep);
+  });
+}
+
+// ── STARTING ────────────────────────────────────────────────────────────
+function newRound(contractIdx, dealer, keepScores) {
+  startRound(contractIdx, dealer, (Date.now() % 100000) | 0, 4);
+  if (keepScores) G.players.forEach((p, i) => { p.score = keepScores[i]; });
+  selected = [];
+  el('overlay').style.display = 'none';
+  render();
+  banner(`Contract ${contractIdx + 1}: ${CONTRACTS[contractIdx].name}. `
+       + `${SEAT_NAME[G.turn]} to play.`, 3600);
+  stepAI();
+}
+
+// The hand is the biggest thing on the table and the thing most worth reading,
+// so it sizes to whichever runs out first — the width thirteen cards need, or
+// the height left once the seats, the centre and the buttons have taken theirs.
+function fitCards() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const byW = (w - 40) / 11.5;
+  const byH = (h - 250) / 4.2;
+  const cw = Math.max(38, Math.min(78, byW, byH));
+  document.documentElement.style.setProperty('--card-w', Math.round(cw) + 'px');
+  document.documentElement.style.setProperty('--card-h', Math.round(cw * 1.42) + 'px');
+}
+window.addEventListener('resize', () => { fitCards(); if (G.players.length) render(); });
+
+el('start-btn').addEventListener('click', () => {
+  fitCards();
+  newRound(0, 0, null);
 });
+el('btn-help').addEventListener('click', () => {
+  banner('Draw a card or take the face-up one, then discard. Lay the contract '
+       + 'exactly as named, add to your own melds, and go out by discarding '
+       + 'your last card.', 7000);
+});
+fitCards();
+
 </script>
 </body>
 </html>

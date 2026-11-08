@@ -13,7 +13,24 @@ contracts to a finish.
 
     ./tests/run.sh            160 assertions, including a 280-round soak
 
-Not built yet: the table. Nothing you can see.
+The table is built and playable — one file, open `carioca.html` in a browser.
+
+The look follows `carioca card sample.PNG`: a green damask felt, hands fanned in
+an arch, red-and-gold card backs with a medallion, gold-rimmed round buttons.
+Everything is drawn in CSS and inline SVG, so the game stays one file that works
+with no signal.
+
+Three layout bugs worth remembering, all found by measuring the rendered boxes
+rather than by looking:
+
+- **Scaled cards leave full-size holes.** `transform: scale()` does not change
+  the layout box, so the melds sat inside big empty rectangles. Small cards are
+  a smaller `--card-w`, never a transform.
+- **Absolute seats collide.** North's melds flowed down over the stock. The
+  table is a column of rows now, and rows cannot overlap.
+- **A rotated card hangs below its own baseline** by half a width times the
+  sine of its angle. The outermost card of the fan was 11px past the bottom of
+  the screen with its corners shaved off.
 
 ### How it plays, 40 deals a contract
 
