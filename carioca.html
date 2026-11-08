@@ -1279,10 +1279,9 @@ function aiCanGoOutNow(seat) {
   return left.length === 1 ? { groups, discard: left[0] } : null;
 }
 
-// Lay the contract, naming any end-joker. The AI declares the HIGH cap by
-// default — 4-5-6-(7) rather than (3)-4-5-6 — which is her own reading of what
-// an end joker is for, and the choice only matters when it is later bought
-// back.
+// Lay the contract, naming any end-joker. The AI declares the HIGH cap —
+// 4-5-6-(7) rather than (3)-4-5-6 — which is her own reading of what an end
+// joker is for. A human is ASKED instead; see askDeclarations().
 function aiLayContract(seat) {
   const p = G.players[seat];
   const groups = buildContract(p.hand, contract());
@@ -1867,16 +1866,60 @@ function humanLayContract() {
     banner(`Those cards are not ${con.name}. Pick exactly the contract.`, 4200);
     return;
   }
-  let declares = groups.map(g => {
-    if (isTrio(g)) return null;
-    const r = resolveRun(g);
-    return (r && r.need) ? r.choices[r.choices.length - 1] : null;
-  });
+  askDeclarations(groups, groups.map(() => null), 0);
+}
+
+// A joker on the END of a run could cap either side, and which it is decides
+// what card can buy it back later — so it is the player's call, not the
+// game's:
+//
+//   "i have a joker in my hand and it is asking me to say which card it stands
+//    for, how do i do that?"
+//
+// It was asking and there was no way to answer. It used to pick the high cap
+// silently, which is a decision taken on her behalf; now it asks, one run at a
+// time, and only when the run is genuinely ambiguous.
+function askDeclarations(groups, declares, i) {
+  while (i < groups.length) {
+    const g = groups[i];
+    if (isTrio(g)) { i++; continue; }
+    const r = resolveRun(g, declares[i]);
+    if (r && r.need === 'declare') { showDeclareModal(groups, declares, i, r.choices); return; }
+    i++;
+  }
   const res = layContract(ME, groups, declares);
   if (!res.ok) { banner(res.why, 4200); return; }
   selected = [];
   banner('Contract down!', 1800);
   render();
+}
+
+function showDeclareModal(groups, declares, i, choices) {
+  const run = groups[i].slice().sort((a, b) =>
+    (a.isJoker ? 99 : RANKS.indexOf(a.rank)) - (b.isJoker ? 99 : RANKS.indexOf(b.rank)));
+  const shown = run.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
+  window._declChoices = choices;
+  const btns = choices.map((ch, k) =>
+    `<button class="action-btn" style="margin:5px;"
+       onclick="pickDeclaration(${i}, ${k})">${ch.join(' and ')}</button>`).join('');
+  el('overlay').innerHTML = `<div class="panel">
+      <h2>Which card is the Joker?</h2>
+      <p style="opacity:.85;margin:4px 0 6px;">Your run: <b>${shown}</b></p>
+      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:330px;">
+        A Joker on the end can cap either side. Whichever you choose is the card
+        it stands for — and the card another player could later swap for it.</p>
+      <div>${btns}</div>
+    </div>`;
+  el('overlay').style.display = 'flex';
+  window._declPending = { groups, declares };
+}
+
+function pickDeclaration(i, k) {
+  const p = window._declPending;
+  if (!p) return;
+  p.declares[i] = window._declChoices[k];
+  el('overlay').style.display = 'none';
+  askDeclarations(p.groups, p.declares, i + 1);
 }
 
 function humanLayOff(meldIndex) {
@@ -2038,33 +2081,60 @@ function stepAI() {
   }, 700);
 }
 
+// Who went out, said properly.
+//
+//   "game ended and i didn't see who went out, it just said round over"
+//
+// It did say so — in grey, at 0.85 opacity, under a heading that said ROUND
+// OVER in twice the size. And the panel landed over the board the instant the
+// last card fell, so there was nothing to look at either. The name is the
+// heading now, the going-out row is marked, and the table gets a moment to be
+// seen first.
 function endOfRound() {
   render();
+  const out = G.players.findIndex(p => p.wentOut);
   const scores = scoreRound();
   G.players.forEach((p, i) => { p.score += scores[i]; });
-  const rows = G.players.map((p, i) =>
-    `<tr><td style="text-align:left;padding:3px 14px 3px 0;">${SEAT_NAME[i]}</td>
-         <td style="padding:3px 14px 3px 0;">${scores[i] > 0 ? '+' : ''}${scores[i]}</td>
-         <td style="font-weight:800;">${p.score}</td></tr>`).join('');
   const last = G.contractIdx >= CONTRACTS.length - 1;
   const best = Math.min(...G.players.map(p => p.score));
-  el('overlay').innerHTML = `<div class="panel">
-      <h2>${last ? 'Game over' : 'Round over'}</h2>
-      <p style="opacity:.85;margin:2px 0 12px;">
-        ${SEAT_NAME[G.players.findIndex(p => p.wentOut)] || 'Nobody'} went out.</p>
-      <table style="margin:0 auto 16px;"><tr style="opacity:.7;font-size:.8rem;">
-        <td style="text-align:left;">seat</td><td>round</td><td>total</td></tr>${rows}</table>
-      ${last ? `<p style="color:var(--gold);font-weight:800;margin-bottom:14px;">
+  const rows = G.players.map((p, i) => {
+    const mine = i === out;
+    return `<tr style="${mine ? 'color:var(--gold);font-weight:800;' : ''}">
+      <td style="text-align:left;padding:4px 16px 4px 0;">
+        ${mine ? '🏁 ' : ''}${SEAT_NAME[i]}</td>
+      <td style="padding:4px 16px 4px 0;">${scores[i] > 0 ? '+' : ''}${scores[i]}</td>
+      <td style="font-weight:800;">${p.score}</td></tr>`;
+  }).join('');
+  const how = out < 0 ? ''
+    : scores[out] === -20
+      ? 'Contract and the whole hand in one turn — <b>−20</b>.'
+      : 'Out on a later turn — <b>−10</b>.';
+  const show = () => {
+    el('overlay').innerHTML = `<div class="panel">
+      <h2 style="color:var(--gold);font-size:1.7rem;">
+        ${out < 0 ? 'Nobody went out' : SEAT_NAME[out] + ' went out'}</h2>
+      <p style="opacity:.8;margin:2px 0 4px;font-size:.86rem;">
+        ${last ? 'Last contract' : 'Contract ' + (G.contractIdx + 1) + ' of 7'}
+        — ${CONTRACTS[G.contractIdx].name}</p>
+      <p style="opacity:.8;margin:0 0 14px;font-size:.86rem;">${how}</p>
+      <table style="margin:0 auto 16px;"><tr style="opacity:.6;font-size:.78rem;">
+        <td style="text-align:left;">seat</td><td>this round</td><td>total</td></tr>${rows}</table>
+      <p style="opacity:.6;font-size:.76rem;margin:-8px 0 14px;">fewest points wins</p>
+      ${last ? `<p style="color:var(--gold);font-weight:800;margin-bottom:14px;font-size:1.1rem;">
                   ${SEAT_NAME[G.players.findIndex(p => p.score === best)]} wins with ${best}.</p>` : ''}
       <button class="action-btn" id="next-btn">${last ? 'Play again' : 'Next contract'}</button>
     </div>`;
-  el('overlay').style.display = 'flex';
-  el('next-btn').addEventListener('click', () => {
-    const keep = G.players.map(p => p.score);
-    const nextC = last ? 0 : G.contractIdx + 1;
-    const nextD = (G.dealer + 1) % G.seats;
-    newRound(nextC, nextD, last ? null : keep);
-  });
+    el('overlay').style.display = 'flex';
+    el('next-btn').addEventListener('click', () => {
+      const keep = G.players.map(p => p.score);
+      newRound(last ? 0 : G.contractIdx + 1, (G.dealer + 1) % G.seats,
+               last ? null : keep);
+    });
+  };
+  if (out >= 0) {
+    banner(`🏁 ${SEAT_NAME[out]} went out!`, 1500);
+    setTimeout(show, 1500);
+  } else show();
 }
 
 // ── STARTING ────────────────────────────────────────────────────────────

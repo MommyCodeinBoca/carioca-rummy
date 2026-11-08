@@ -321,6 +321,73 @@ window.addEventListener('load',()=>setTimeout(()=>{
   ok('...and the 6♥ does',
      document.querySelector('#seat-1 .card.jk').classList.contains('swappable'));
 
+  // ── WHO WENT OUT ─────────────────────────────────────────────────────
+  //   "game ended and i didn't see who went out, it just said round over"
+  startRound(0,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  G.players[1].hand=[C('7','♠'),C('7','♥'),C('7','♦'),
+                     C('9','♠'),C('9','♥'),C('9','♦'), C('2','♦')];
+  G.turn=1; G.phase='meld';
+  aiLayContract(1);
+  discardCard(1, G.players[1].hand[0]);
+  ok('West has gone out', G.roundOver && G.players[1].wentOut);
+  endOfRound();
+  ok('the table says so before the panel lands',
+     /West went out/.test(document.getElementById('banner').textContent),
+     document.getElementById('banner').textContent);
+  // the panel is on a timer now, so build it directly to read it
+  const seen=[];
+  (function(){ const o=document.getElementById('overlay');
+     const obs=setInterval(()=>{ if(o.style.display==='flex'){
+       seen.push(o.textContent.replace(/\s+/g,' ').trim()); clearInterval(obs);} },20);
+  })();
+
+  // ── DECLARING A JOKER ────────────────────────────────────────────────
+  //   "i have a joker in my hand and it is asking me to say which card it
+  //    stands for, how do i do that?"
+  // It asked, and there was no way to answer.
+  startRound(2,0,4242,4);                       // 2 runs
+  document.getElementById('overlay').style.display='none';
+  const dj={rank:'JOKER',suit:'★',isJoker:true,id:'dj'+Math.random()};
+  G.players[0].hand=[C('4','♥'),C('5','♥'),C('6','♥'),dj,
+                     C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠'),C('3','♣')];
+  G.turn=0; G.phase='meld'; selected=G.players[0].hand.slice(0,8);
+  render();
+  humanLayContract();
+  const ov=document.getElementById('overlay');
+  ok('THE REPORTED CASE: it now ASKS, with buttons',
+     ov.style.display==='flex' && /Which card is the Joker/.test(ov.textContent),
+     ov.textContent.replace(/\s+/g,' ').trim().slice(0,60));
+  const picks=[...ov.querySelectorAll('.action-btn')];
+  ok('...offering both caps', picks.length===2,
+     picks.map(b=>b.textContent).join(' | '));
+  ok('...and nothing has gone down while it waits',
+     G.players[0].melds.length===0);
+  // choose the low cap, which the old silent default would never have picked
+  const low=picks.find(b=>/3♥/.test(b.textContent));
+  ok('...the LOW cap is on offer', !!low, picks.map(b=>b.textContent).join(' | '));
+  low.click();
+  ok('THE FIX: choosing it lays the contract',
+     G.players[0].melds.length===2, G.players[0].melds.length+' melds');
+  ok('...and the joker stands for what SHE said, not the high cap',
+     dj.standsFor && dj.standsFor.rank==='3', JSON.stringify(dj.standsFor));
+
+  // a run with no ambiguity is not asked about
+  startRound(2,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  const gj={rank:'JOKER',suit:'★',isJoker:true,id:'gj'+Math.random()};
+  G.players[0].hand=[C('4','♥'),C('5','♥'),gj,C('7','♥'),
+                     C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠'),C('3','♣')];
+  G.turn=0; G.phase='meld'; selected=G.players[0].hand.slice(0,8); render();
+  humanLayContract();
+  ok('a joker in a GAP is never asked about — it can only be one card',
+     G.players[0].melds.length===2 &&
+     document.getElementById('overlay').style.display!=='flex',
+     G.players[0].melds.length+' melds');
+  ok('...and it named itself the 6♥',
+     gj.standsFor && gj.standsFor.rank==='6' && gj.standsFor.suit==='♥',
+     JSON.stringify(gj.standsFor));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';
