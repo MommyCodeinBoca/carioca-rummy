@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carioca Rummy</title>
+</head>
+<body>
+<div id="app"><button id="start-btn">Start</button></div>
+<script>
+// ════════════════════════════════════════════════════════════════════════
+// CARIOCA RUMMY — rules engine
+//
+// From the player's own document, 'Carioca Rummy Game.docx'. Her corrections
+// to it, in her words, are quoted at the rule they settle.
+// ════════════════════════════════════════════════════════════════════════
+
+const APP_VERSION = '0.1';
+
+// ── THE DECK ────────────────────────────────────────────────────────────
+//   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
+//    If more players, then you can add another deck."
+//
+// 104 + 4 = 108. Five players at the longest contract take 65, so one pair of
+// decks is enough for every seat count the rules name.
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RED_SUITS = ['♥', '♦'];
+const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+
+function buildDeck(decks = 2) {
+  const cards = [];
+  let n = 0;
+  for (let d = 0; d < decks; d++) {
+    SUITS.forEach(suit => RANKS.forEach(rank => {
+      cards.push({ rank, suit, isJoker: false, id: 'c' + (n++) });
+    }));
+    cards.push({ rank: 'JOKER', suit: '★', isJoker: true, id: 'c' + (n++) });
+    cards.push({ rank: 'JOKER', suit: '★', isJoker: true, id: 'c' + (n++) });
+  }
+  return cards;
+}
+
+// ── CARD VALUES ─────────────────────────────────────────────────────────
+//   "2-10: have their own value / J,Q,K: 10 points / Ace: 15 points /
+//    Joker: 25 points"
+//
+// These are PENALTY points: every card left in a hand counts against its
+// owner, so a joker is the worst card to be caught holding as well as the most
+// useful one to hold.
+function cardPoints(c) {
+  if (c.isJoker) return 25;
+  if (c.rank === 'A') return 15;
+  if (c.rank === 'J' || c.rank === 'Q' || c.rank === 'K') return 10;
+  return parseInt(c.rank, 10);
+}
+
+function handPoints(hand) {
+  return hand.reduce((s, c) => s + cardPoints(c), 0);
+}
+
+// ── THE CONTRACTS ───────────────────────────────────────────────────────
+// Seven rounds, in this order. `deal` is the hand size; `trios` and `runs` are
+// what must go down to complete the contract.
+//
+// THE FIRST ROW WAS WRONG IN THE DOCUMENT, and the arithmetic is what caught
+// it. Every row is `deal = trios*3 + runs*4 + 1`, the spare card being the one
+// discarded to end the turn:
+//
+//    8 = 3 + 4 + 1      11 = 6 + 4 + 1
+//    9 = 4 + 4 + 1      12 = 8 + 3 + 1
+//   10 = 9 + 0 + 1      13 = 12 + 0 + 1
+//
+// Only "7 cards: 3 trios" broke it — 3 trios is nine cards and would need ten
+// dealt — and it broke by exactly one trio. It would also have made the first
+// contract identical to the fourth.
+//
+//   "you are right, the first contract is 2 trios, let me correct the
+//    document."
+const CONTRACTS = [
+  { deal: 7,  trios: 2, runs: 0, name: '2 trios' },
+  { deal: 8,  trios: 1, runs: 1, name: '1 trio + 1 run' },
+  { deal: 9,  trios: 0, runs: 2, name: '2 runs' },
+  { deal: 10, trios: 3, runs: 0, name: '3 trios' },
+  { deal: 11, trios: 2, runs: 1, name: '2 trios + 1 run' },
+  { deal: 12, trios: 1, runs: 2, name: '1 trio + 2 runs' },
+  { deal: 13, trios: 0, runs: 3, name: '3 runs' },
+];
+
+const TRIO_MIN = 3;
+const RUN_MIN  = 4;
+
+// Every contract's deal is its own cards plus one to discard. Asked rather than
+// restated, so a contract cannot be added with a deal that does not fit.
+function contractCards(c) { return c.trios * TRIO_MIN + c.runs * RUN_MIN; }
+function contractDealCheck(c) { return contractCards(c) + 1 === c.deal; }
+
+// ── TRIOS ───────────────────────────────────────────────────────────────
+// Three or more of a rank. Suits do not matter; two decks mean duplicates are
+// ordinary and not a problem.
+//
+//   "Players are allowed to place more cards on their contract trios or runs."
+//
+// So three is a minimum, not a size. A trio needs at least one natural — seven
+// jokers is not a trio of anything, it has no rank to be.
+function isTrio(cards) {
+  if (!Array.isArray(cards) || cards.length < TRIO_MIN) return false;
+  const nat = cards.filter(c => !c.isJoker);
+  if (nat.length === 0) return false;
+  const rank = nat[0].rank;
+  return nat.every(c => c.rank === rank);
+}
+
+function trioRank(cards) {
+  const nat = (cards || []).filter(c => !c.isJoker);
+  return nat.length ? nat[0].rank : null;
+}
+
+// ── RUNS ────────────────────────────────────────────────────────────────
+// Four or more consecutive cards of ONE suit — and the ranks are a CIRCLE:
+//
+//   "a run can start with any card, e.g. Q-K-A-2 is a run"
+//
+// So the Ace is not a boundary. K wraps to A, A to 2, and a run may cross that
+// seam. It cannot cross it twice: thirteen ranks exist, so a run of more than
+// thirteen cards would have to repeat one, and a repeat is not consecutive.
+//
+// Jokers stand in for a missing rank:
+//
+//   "Jokers are wild cards, and can be used anywhere to complete the contract."
+//
+// The order a run is HELD in does not matter — the player drops cards in and
+// the game works out whether they form one. So this asks whether the cards can
+// be ARRANGED into a run, not whether they already are.
+function isRun(cards) {
+  if (!Array.isArray(cards) || cards.length < RUN_MIN) return false;
+  if (cards.length > RANKS.length) return false;      // cannot lap the circle
+  const nat = cards.filter(c => !c.isJoker);
+  const jokers = cards.length - nat.length;
+  if (nat.length === 0) return false;                 // no suit, no run
+  const suit = nat[0].suit;
+  if (!nat.every(c => c.suit === suit)) return false;
+
+  const idx = nat.map(c => RANKS.indexOf(c.rank));
+  if (idx.some(i => i < 0)) return false;
+  if (new Set(idx).size !== idx.length) return false; // a repeat is not a run
+
+  // Try every rank as the start. The run occupies `cards.length` consecutive
+  // slots from there, and each natural must land in one of them; whatever is
+  // left over is filled by jokers, and there must be exactly enough.
+  for (let start = 0; start < RANKS.length; start++) {
+    const slots = new Set();
+    for (let k = 0; k < cards.length; k++) slots.add((start + k) % RANKS.length);
+    if (!idx.every(i => slots.has(i))) continue;
+    if (slots.size - nat.length === jokers) return true;
+  }
+  return false;
+}
+
+// Which rank a joker is standing in for, at each position of a laid run. Needed
+// by the exchange:
+//
+//   "if one of the other players has the card it was meant to replace, they
+//    can, on their turn, exchange the joker for the card and use the joker to
+//    complete their contract."
+//
+// Returns [{ card, rank, suit }] for each joker, or null when the run is
+// ambiguous — which it can be at the ends, where a joker could extend either
+// way. An ambiguous joker is not exchangeable, because nobody can say what card
+// it was meant to be.
+function runJokerTargets(cards) {
+  if (!isRun(cards)) return null;
+  const nat = cards.filter(c => !c.isJoker);
+  const jokers = cards.filter(c => c.isJoker);
+  if (!jokers.length) return [];
+  const suit = nat[0].suit;
+  const idx = nat.map(c => RANKS.indexOf(c.rank));
+
+  const fits = [];
+  for (let start = 0; start < RANKS.length; start++) {
+    const slots = [];
+    for (let k = 0; k < cards.length; k++) slots.push((start + k) % RANKS.length);
+    if (!idx.every(i => slots.includes(i))) continue;
+    const gaps = slots.filter(i => !idx.includes(i));
+    if (gaps.length !== jokers.length) continue;
+    fits.push(gaps);
+  }
+  if (fits.length === 0) return null;
+  // More than one arrangement and the gaps differ: nobody can say which card
+  // the joker stands for, so it is not exchangeable.
+  const first = fits[0].join(',');
+  if (!fits.every(f => f.join(',') === first)) return null;
+  return fits[0].map((g, n) => ({ card: jokers[n], rank: RANKS[g], suit }));
+}
+
+// ── SCORING ─────────────────────────────────────────────────────────────
+//   "If a player has melded their contract down, and discarded all their cards
+//    on the same turn, the player makes -20 points. If a player has melded
+//    their contract, but closed out on a later turn, that player makes -10
+//    points. All other players, count their cards and all those points are
+//    positive for each player."
+//
+//   "The player with the least number of points wins."
+//
+// So the bonus is for the player who GOES OUT, and it is bigger for doing the
+// whole thing in one turn — the risky line the notes describe. Everyone else
+// scores the cards left in their hand, against them.
+function roundScore(player) {
+  if (!player.wentOut) return handPoints(player.hand);
+  return player.meldedThisTurn ? -20 : -10;
+}
+
+// ── TURN ORDER AND THE STEAL ────────────────────────────────────────────
+// How far `seat` sits from `from`, counting left-hand-ward around the table.
+// The seat immediately to the left of `from` is 1.
+function seatDistance(from, seat, seats) {
+  return ((seat - from) % seats + seats) % seats;
+}
+
+// Who wins a contested discard.
+//
+//   "If two or more players want it, the player closest to the player who
+//    discarded the card wins. Any player aside from the one next to the player
+//    who discarded the card, takes the penalty card."
+//
+// Note what falls out of this: the next player is distance 1, so they are
+// ALWAYS the closest, and a contest they enter is a contest they win. Stealing
+// therefore only succeeds on a card the next player does not want — which is
+// why it is resolved by seat and never by who clicked first. An AI decides in
+// microseconds and a person does not.
+//
+// `claims` is a list of seat numbers. Returns { seat, penalty } or null.
+function resolveClaim(discarder, claims, seats) {
+  if (!claims || !claims.length) return null;
+  let best = null, bestD = Infinity;
+  claims.forEach(seat => {
+    const d = seatDistance(discarder, seat, seats);
+    if (d > 0 && d < bestD) { bestD = d; best = seat; }
+  });
+  if (best === null) return null;
+  return { seat: best, penalty: bestD > 1 };
+}
+
+// ── EXPOSED FOR THE TEST HARNESS ────────────────────────────────────────
+const G = {
+  seats: 4,
+  contract: 0,
+  players: [],
+  stock: [],
+  discard: [],
+};
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('start-btn').textContent = 'Started';
+});
+</script>
+</body>
+</html>
