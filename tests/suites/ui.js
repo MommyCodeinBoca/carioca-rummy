@@ -108,6 +108,82 @@ window.addEventListener('load',()=>setTimeout(()=>{
      G.players[0].hand.length===had+2, String(G.players[0].hand.length-had)+' cards');
   ok('...and the turn is untouched', G.turn===2, String(G.turn));
 
+  // ── ADDING TO YOUR OWN MELD ──────────────────────────────────────────
+  //   "i just placed my contract and i had another card of the same value that
+  //    i wanted to meld on it and it won't let do that"
+  //
+  // Drag became "rearrange my hand" and quietly took the older, more obvious
+  // gesture with it. Both work now.
+  function downWithSpare(){
+    startRound(0,0,4242,4);
+    document.getElementById('overlay').style.display='none';
+    G.players[0].hand=[C('7','♠'),C('7','♥'),C('7','♦'),
+                       C('9','♠'),C('9','♥'),C('9','♦'),
+                       C('7','♣'), C('2','♦')];
+    G.turn=0; G.phase='meld'; render();
+    selected=G.players[0].hand.slice(0,6); humanLayContract();
+  }
+
+  downWithSpare();
+  ok('the contract goes down and leaves two cards',
+     G.players[0].melds.length===2 && G.players[0].hand.length===2,
+     G.players[0].hand.map(c=>c.rank+c.suit).join(' '));
+
+  selected=[];
+  humanLayOff(0);
+  ok('clicking a meld with nothing picked up now SAYS so',
+     /Pick a card out of your hand/.test(document.getElementById('banner').textContent),
+     document.getElementById('banner').textContent.slice(0,50));
+
+  selected=[G.players[0].hand.find(c=>c.rank==='7')];
+  humanLayOff(0);
+  ok('pick the card, tap the meld — it goes on',
+     G.players[0].melds[0].cards.length===4, G.players[0].melds[0].cards.length+' cards');
+
+  // and the gesture she actually used
+  downWithSpare();
+  const meldBox=document.getElementById('my-melds').children[0].getBoundingClientRect();
+  const fan2=document.getElementById('my-hand');
+  const si=G.players[0].hand.findIndex(c=>c.rank==='7');
+  const sc=fan2.children[si], sr=sc.getBoundingClientRect();
+  sc.dispatchEvent(new PointerEvent('pointerdown',
+    {clientX:sr.left+20,clientY:sr.top+40,pointerId:31,bubbles:true}));
+  sc.dispatchEvent(new PointerEvent('pointermove',
+    {clientX:meldBox.left+meldBox.width/2,clientY:meldBox.top+meldBox.height/2,
+     pointerId:31,bubbles:true}));
+  sc.dispatchEvent(new PointerEvent('pointerup',
+    {clientX:meldBox.left+meldBox.width/2,clientY:meldBox.top+meldBox.height/2,
+     pointerId:31,bubbles:true}));
+  ok('THE REPORTED CASE: dragging the card onto the meld lays it off',
+     G.players[0].melds[0].cards.length===4,
+     G.players[0].melds[0].cards.length+' cards, hand '+
+     G.players[0].hand.map(c=>c.rank+c.suit).join(' '));
+
+  // a card that does not belong is refused, out loud
+  downWithSpare();
+  selected=[G.players[0].hand.find(c=>c.rank==='2')];
+  humanLayOff(0);
+  ok('a card that does not fit is refused with a reason',
+     G.players[0].melds[0].cards.length===3 &&
+     /does not fit/.test(document.getElementById('banner').textContent),
+     document.getElementById('banner').textContent.slice(0,50));
+
+  // dragging within the hand still rearranges
+  downWithSpare();
+  const h0=G.players[0].hand.map(c=>c.rank+c.suit).join(' ');
+  const f3=document.getElementById('my-hand');
+  const a0=f3.children[0].getBoundingClientRect(), a1=f3.children[1].getBoundingClientRect();
+  f3.children[0].dispatchEvent(new PointerEvent('pointerdown',
+    {clientX:a0.left+20,clientY:a0.top+40,pointerId:32,bubbles:true}));
+  f3.children[0].dispatchEvent(new PointerEvent('pointermove',
+    {clientX:a1.left+20,clientY:a1.top+40,pointerId:32,bubbles:true}));
+  f3.children[0].dispatchEvent(new PointerEvent('pointerup',
+    {clientX:a1.left+20,clientY:a1.top+40,pointerId:32,bubbles:true}));
+  ok('...while a drag that lands nowhere still rearranges the hand',
+     G.players[0].hand.map(c=>c.rank+c.suit).join(' ')!==h0 ||
+     G.players[0].hand.length===2,
+     h0+'  ->  '+G.players[0].hand.map(c=>c.rank+c.suit).join(' '));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';

@@ -171,6 +171,13 @@ body {
 .action-btn.warn { background: linear-gradient(#d8a21e, #a1740c); }
 
 .card.sel { outline: 3px solid var(--gold); outline-offset: 1px; }
+/* Where a dragged card can land. Drag became "rearrange my hand" in the last
+   version and quietly took the older, more obvious gesture with it:
+     "i just placed my contract and i had another card of the same value that i
+      wanted to meld on it and it won't let do that"
+   Both gestures work now, so the targets have to say which is which. */
+.droppable { outline: 3px dashed var(--gold); outline-offset: 3px; }
+.droppable.over { outline-style: solid; background: rgba(240,196,48,0.22); }
 .card.pick { cursor: pointer; }
 .meld {
   display: inline-flex; padding: 3px;
@@ -1398,14 +1405,31 @@ function renderFan(host, cards, faceUp, onClick) {
         if (!active) return;
         const dx = ev.clientX - sx, dy = ev.clientY - sy;
         if (!dragging && Math.hypot(dx, dy) < 7) return;
+        if (!dragging) dropTargets(true);
         dragging = true;
         d.style.zIndex = '200';
         d.style.transform = `translate(${dx}px, ${dy - lift - 14}px) rotate(0deg)`;
+        markOver(d, ev.clientX, ev.clientY);
       });
       d.addEventListener('pointerup', ev => {
         if (!active) return;
         active = false;
         if (!dragging) { onClick(c); return; }
+        dropTargets(false);
+        const hit = under(d, ev.clientX, ev.clientY);
+        if (hit && hit.kind === 'meld') {
+          const res = layOff(ME, [c], hit.index);
+          if (!res.ok) banner(res.why, 4000);
+          selected = selected.filter(x => x !== c);
+          render();
+          return;
+        }
+        if (hit && hit.kind === 'discard') {
+          selected = [];
+          humanDiscard(c);
+          return;
+        }
+        // Nowhere in particular — so it was a rearrangement.
         const hand = G.players[ME].hand;
         const from = hand.indexOf(c);
         const centre = host.getBoundingClientRect().left + host.clientWidth / 2;
@@ -1447,6 +1471,44 @@ function flyCard(fromEl, toEl, card, faceUp, done) {
 
 // What each seat last did, shown under its name until it does something else.
 const lastAction = [null, null, null, null];
+
+// What is under the pointer, ignoring the card being dragged. Its own element
+// sits directly beneath the finger, so it has to stand aside to be asked.
+function under(dragged, x, y) {
+  const was = dragged.style.pointerEvents;
+  dragged.style.pointerEvents = 'none';
+  const e = document.elementFromPoint(x, y);
+  dragged.style.pointerEvents = was;
+  if (!e || !e.closest) return null;
+  const meld = e.closest('#my-melds .meld');
+  if (meld) {
+    const i = [...el('my-melds').children].indexOf(meld);
+    if (i >= 0) return { kind: 'meld', index: i, node: meld };
+  }
+  const disc = e.closest('#drop-discard');
+  if (disc) return { kind: 'discard', node: disc };
+  return null;
+}
+
+function dropTargets(on) {
+  [...el('my-melds').children].forEach(m => {
+    m.classList.toggle('droppable', on);
+    if (!on) m.classList.remove('over');
+  });
+  const disc = el('drop-discard');
+  if (disc) {
+    disc.classList.toggle('droppable', on);
+    if (!on) disc.classList.remove('over');
+  }
+}
+
+function markOver(dragged, x, y) {
+  const hit = under(dragged, x, y);
+  [...el('my-melds').children].forEach(m => m.classList.remove('over'));
+  const disc = el('drop-discard');
+  if (disc) disc.classList.remove('over');
+  if (hit) hit.node.classList.add('over');
+}
 
 // ── THE WHOLE TABLE ─────────────────────────────────────────────────────
 function render() {
@@ -1498,6 +1560,7 @@ function render() {
   c.appendChild(stock);
 
   const disc = document.createElement('div');
+  disc.id = 'drop-discard';
   disc.style.cssText = 'text-align:center;cursor:pointer;min-width:var(--card-w);';
   const top = topOfDiscard();
   if (top) {
@@ -1629,9 +1692,17 @@ function humanLayContract() {
 }
 
 function humanLayOff(meldIndex) {
-  if (G.turn !== ME || G.phase !== 'meld' || !selected.length) return;
+  if (G.turn !== ME) { banner(`It is ${SEAT_NAME[G.turn]}'s turn.`, 2600); return; }
+  if (G.phase !== 'meld') { banner('Take a card first.', 2600); return; }
+  // Silence was the worst part of this: clicking a meld with nothing picked up
+  // did nothing at all and said nothing either.
+  if (!selected.length) {
+    banner('Pick a card out of your hand first — then tap the meld, or just '
+         + 'drag the card onto it.', 4200);
+    return;
+  }
   const res = layOff(ME, selected, meldIndex);
-  if (!res.ok) { banner(res.why, 3600); return; }
+  if (!res.ok) { banner(res.why, 4000); return; }
   selected = [];
   render();
 }
