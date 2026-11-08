@@ -72,6 +72,42 @@ window.addEventListener('load',()=>setTimeout(()=>{
      /drew/.test(document.getElementById('seat-1').textContent));
   ok('...and the ring moved with the turn',
      !document.getElementById('seat-2').classList.contains('seat-active'));
+  // ── THE HOLD PROMPT ──────────────────────────────────────────────────
+  //   "it doesn't let me call for a card"
+  // It was a small button shown for 3,500ms and then taken away. Her own rule
+  // gives the caller time to think, so it waits.
+  startRound(0,0,4242,4);
+  const wrap=document.getElementById('hold-wrap');
+  G.turn=2; G.phase='draw'; render();
+  const beforeTurn=G.turn, beforeHand=G.players[0].hand.length;
+  afterDiscard(1);
+  ok('THE REPORTED CASE: the prompt is up', getComputedStyle(wrap).display!=='none');
+  ok('...and names the card and who threw it',
+     /West threw the/.test(document.getElementById('hold-say').textContent),
+     document.getElementById('hold-say').textContent);
+  ok('...with no countdown by default — it waits',
+     getComputedStyle(document.getElementById('hold-bar')).display==='none' || HOLD_MS===0,
+     'HOLD_MS='+HOLD_MS);
+  ok('...and the game does NOT move on behind it',
+     G.turn===beforeTurn && G.players[0].hand.length===beforeHand);
+  ok('...the discard pile is clickable too',
+     document.getElementById('src-discard').classList.contains('holdable'));
+
+  // passing lets play continue
+  document.getElementById('pass-btn').click();
+  ok('passing closes the prompt', getComputedStyle(wrap).display==='none');
+
+  // holding takes the card
+  startRound(0,0,4242,4); G.turn=2; G.phase='draw'; render();
+  const want=topOfDiscard(), had=G.players[0].hand.length;
+  afterDiscard(1);
+  document.getElementById('hold-btn').click();
+  ok('THE FIX: holding puts the card in my hand',
+     G.players[0].hand.includes(want), 'hand '+had+' -> '+G.players[0].hand.length);
+  ok('...and the penalty card with it',
+     G.players[0].hand.length===had+2, String(G.players[0].hand.length-had)+' cards');
+  ok('...and the turn is untouched', G.turn===2, String(G.turn));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';
