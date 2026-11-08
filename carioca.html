@@ -863,6 +863,15 @@ function layOff(seat, cards, meldIndex) {
   const stillGood = meld.type === 'trio' ? isTrio(after) : isRun(after);
   if (!stillGood) return { ok: false, why: `that does not fit your ${meld.type}` };
   meld.cards = after;
+  // A joker added to a run now stands for whatever slot it filled, so it can
+  // be bought back like any other. Only where the arrangement is unambiguous —
+  // on the end it could be either side, and nobody can say which.
+  if (meld.type === 'run') {
+    const r = resolveRun(meld.cards);
+    if (r && !r.need) r.jokers.forEach(j => {
+      j.card.standsFor = { rank: j.rank, suit: j.suit };
+    });
+  }
   p.hand = p.hand.filter(c => !cards.includes(c));
   return { ok: true };
 }
@@ -915,6 +924,35 @@ function endTurn(seat) {
 // exact match, rank and suit: a joker standing for the 6♥ is bought with the
 // 6♥ and nothing else. The player need not be down; buying a joker to finish a
 // contract is the whole point of the move.
+// What a joker on the table is standing in for.
+//
+// In a RUN it is one exact card — the 6♥ and nothing else — and resolveRun()
+// wrote that on it when the run went down. In a TRIO it is the rank and the
+// rank only: a joker in 9♠ 9♥ J is "a nine", and any nine buys it, because a
+// trio does not care about suits.
+//
+// Trios were given no identity at all until v0.5, so a joker in one could
+// never be exchanged — and the first and fourth contracts are nothing but
+// trios:
+//
+//   "how do i take the joker from someone elses hand, i have a replacement but
+//    it wont let me"
+function jokerStandsFor(meld, jokerCard) {
+  if (!jokerCard || !jokerCard.isJoker || !meld) return null;
+  if (meld.type === 'trio') {
+    const rank = trioRank(meld.cards);
+    return rank ? { rank, suit: null } : null;      // null suit = any suit
+  }
+  return jokerCard.standsFor || null;
+}
+
+// Does this card buy that joker? Rank always; suit only when the joker has one.
+function cardBuysJoker(card, want) {
+  if (!card || card.isJoker || !want) return false;
+  if (card.rank !== want.rank) return false;
+  return want.suit === null || card.suit === want.suit;
+}
+
 function exchangeJoker(seat, card, ownerSeat, meldIndex, jokerCard) {
   const p = G.players[seat];
   if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
@@ -923,10 +961,18 @@ function exchangeJoker(seat, card, ownerSeat, meldIndex, jokerCard) {
   if (!meld) return { ok: false, why: 'no such meld' };
   const at = meld.cards.indexOf(jokerCard);
   if (at < 0 || !jokerCard.isJoker) return { ok: false, why: 'that is not a joker on the table' };
-  const sf = jokerCard.standsFor;
+  const sf = jokerStandsFor(meld, jokerCard);
   if (!sf) return { ok: false, why: 'that joker stands for nothing yet' };
-  if (card.rank !== sf.rank || card.suit !== sf.suit) {
-    return { ok: false, why: `that joker is the ${sf.rank}${sf.suit}` };
+  if (!cardBuysJoker(card, sf)) {
+    return { ok: false, why: `that joker is ${sf.suit ? 'the ' + sf.rank + sf.suit
+                                                     : 'a ' + sf.rank}` };
+  }
+  // The meld has to survive the swap. It always does — a natural of the right
+  // rank is exactly what the joker was pretending to be — but a rule that is
+  // obviously true is cheap to check and expensive to assume.
+  const after = meld.cards.map((c, i) => i === at ? card : c);
+  if (meld.type === 'trio' ? !isTrio(after) : !isRun(after)) {
+    return { ok: false, why: 'that would break the meld' };
   }
   meld.cards[at] = card;
   p.hand = p.hand.filter(c => c !== card);
@@ -1623,12 +1669,14 @@ function render() {
   // only move on the table that lives on somebody else's melds.
   if (G.turn === ME && G.phase === 'meld' && !G.roundOver) {
     const swap = G.players.flatMap((p, s) => p.melds.flatMap(m =>
-      m.cards.filter(c => c.isJoker && c.standsFor && myMatchFor(c))
-             .map(c => ({ c, s }))))[0];
+      m.cards.filter(c => c.isJoker && myMatchFor(c, m))
+             .map(c => ({ c, s, m }))))[0];
     if (swap && render._said !== swap.c.id) {
       render._said = swap.c.id;
-      banner(`You hold the ${swap.c.standsFor.rank}${swap.c.standsFor.suit} — tap the glowing `
-           + `Joker on ${swap.s === ME ? 'your' : SEAT_NAME[swap.s] + "'s"} meld to take it.`, 5000);
+      const mine = myMatchFor(swap.c, swap.m);
+      banner(`Your ${nameCard(mine)} buys the Joker on `
+           + `${swap.s === ME ? 'your' : SEAT_NAME[swap.s] + "'s"} meld — tap the glowing one.`,
+             5000);
     }
     if (!swap) render._said = null;
   }
@@ -1649,16 +1697,18 @@ function meldEl(m, ownerSeat, meldIndex) {
   d.className = 'meld';
   m.cards.forEach(c => {
     const e = cardEl(c, true);
-    if (c.isJoker && c.standsFor) {
+    const sf = jokerStandsFor(m, c);
+    if (c.isJoker && sf) {
       e.classList.add('jk');
-      e.title = `standing in for the ${c.standsFor.rank}${c.standsFor.suit}`;
-      const mine = myMatchFor(c);
+      e.title = sf.suit ? `standing in for the ${sf.rank}${sf.suit}`
+                        : `standing in for a ${sf.rank}`;
+      const mine = myMatchFor(c, m);
       if (mine && ownerSeat !== undefined) {
         e.classList.add('swappable');
         e.title += ' — tap to swap your ' + nameCard(mine) + ' for it';
         e.addEventListener('click', ev => {
           ev.stopPropagation();
-          const res = exchangeJoker(ME, mine, ownerSeat, meldIndex, c);
+          const res = exchangeJoker(ME, myMatchFor(c, m), ownerSeat, meldIndex, c);
           if (!res.ok) { banner(res.why, 4000); return; }
           selected = [];
           banner(`You gave the ${nameCard(mine)} and took the Joker.`, 3400);
@@ -1671,12 +1721,13 @@ function meldEl(m, ownerSeat, meldIndex) {
   return d;
 }
 
-// The card in my hand that would buy this joker back — exact rank and suit.
-function myMatchFor(joker) {
-  if (!joker.standsFor) return null;
+// The card in my hand that would buy this joker back. In a run that is one
+// exact card; in a trio, any card of the rank.
+function myMatchFor(joker, meld) {
+  const sf = jokerStandsFor(meld, joker);
+  if (!sf) return null;
   if (G.turn !== ME || G.phase !== 'meld' || G.roundOver) return null;
-  return G.players[ME].hand.find(c => !c.isJoker &&
-    c.rank === joker.standsFor.rank && c.suit === joker.standsFor.suit) || null;
+  return G.players[ME].hand.find(c => cardBuysJoker(c, sf)) || null;
 }
 
 function renderActions() {

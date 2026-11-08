@@ -233,9 +233,9 @@ window.addEventListener('load',()=>setTimeout(()=>{
   ok('THE REPORTED CASE: the joker on the table is marked', !!jkEl);
   ok('...and glows, because I hold the 7♥',
      jkEl.classList.contains('swappable'), jkEl.className);
-  ok('...and the table says so', /tap the glowing Joker/
-     .test(document.getElementById('banner').textContent),
-     document.getElementById('banner').textContent.slice(0,60));
+  ok('...and the table says so, naming the card that buys it',
+     /7♥ buys the Joker/.test(document.getElementById('banner').textContent),
+     document.getElementById('banner').textContent.slice(0,70));
 
   jkEl.click();
   ok('THE FIX: tapping it makes the swap',
@@ -257,6 +257,69 @@ window.addEventListener('load',()=>setTimeout(()=>{
   const jk2El=document.querySelector('#seat-1 .card.jk');
   ok('holding the wrong suit, the joker does not glow',
      jk2El && !jk2El.classList.contains('swappable'));
+
+  // ── A JOKER IN A TRIO ────────────────────────────────────────────────
+  //   "how do i take the joker from someone elses hand, i have a replacement
+  //    but it wont let me"
+  //
+  // Only runs were resolved, so a joker in a TRIO carried no identity and
+  // could never be bought. The first and fourth contracts are nothing but
+  // trios, so this was unreachable from the moment the exchange shipped.
+  function trioBoard(myCards){
+    startRound(0,0,4242,4);                 // 2 trios
+    document.getElementById('overlay').style.display='none';
+    const jk3={rank:'JOKER',suit:'★',isJoker:true,id:'jt'+Math.random()};
+    const a=[C('9','♠'),C('9','♥'),jk3], b=[C('K','♠'),C('K','♥'),C('K','♦')];
+    G.players[1].hand=[...a,...b,C('3','♣')];
+    G.turn=1; G.phase='meld';
+    layContract(1,[a,b]);
+    G.turn=0; G.phase='meld';
+    G.players[0].hand=myCards;
+    render();
+    return jk3;
+  }
+
+  let tj=trioBoard([C('9','♦'), C('2','♦')]);
+  ok('a joker in a trio stands for the rank',
+     JSON.stringify(jokerStandsFor(G.players[1].melds[0], tj))==='{"rank":"9","suit":null}',
+     JSON.stringify(jokerStandsFor(G.players[1].melds[0], tj)));
+  const tjEl=document.querySelector('#seat-1 .card.jk');
+  ok('THE REPORTED CASE: it is marked on the table', !!tjEl);
+  ok('...and glows, because I hold a nine', tjEl.classList.contains('swappable'));
+  ok('...and says what it is',
+     /standing in for a 9/.test(tjEl.title), tjEl.title);
+  tjEl.click();
+  ok('THE FIX: tapping it takes the joker',
+     G.players[0].hand.includes(tj),
+     G.players[0].hand.map(c=>c.isJoker?'Jo':c.rank+c.suit).join(' '));
+  ok('...and the trio is still a trio of nines',
+     isTrio(G.players[1].melds[0].cards) &&
+     trioRank(G.players[1].melds[0].cards)==='9',
+     G.players[1].melds[0].cards.map(c=>c.isJoker?'Jo':c.rank+c.suit).join(' '));
+
+  // a trio does not care about suits
+  tj=trioBoard([C('9','♣'), C('2','♦')]);
+  ok('ANY nine buys it — a trio has no suit',
+     document.querySelector('#seat-1 .card.jk').classList.contains('swappable'));
+
+  // but the rank must be right
+  tj=trioBoard([C('8','♦'), C('2','♦')]);
+  ok('an eight does not', !document.querySelector('#seat-1 .card.jk')
+                              .classList.contains('swappable'));
+
+  // a run still wants the exact card
+  startRound(2,0,4242,4);
+  const rj={rank:'JOKER',suit:'★',isJoker:true,id:'jr'+Math.random()};
+  const rr=[C('4','♥'),C('5','♥'),rj,C('7','♥')];
+  G.players[1].melds=[{type:'run',cards:rr}]; G.players[1].down=true;
+  rj.standsFor={rank:'6',suit:'♥'};
+  G.turn=0; G.phase='meld';
+  G.players[0].hand=[C('6','♠')]; render();
+  ok('in a RUN the suit still matters — the 6♠ does not buy the 6♥',
+     !document.querySelector('#seat-1 .card.jk').classList.contains('swappable'));
+  G.players[0].hand=[C('6','♥'), C('2','♦')]; render();
+  ok('...and the 6♥ does',
+     document.querySelector('#seat-1 .card.jk').classList.contains('swappable'));
 
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
