@@ -603,6 +603,342 @@ function scoreRound() {
   return G.players.map(p => roundScore(p));
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// THE AI
+//
+// Every judgement sits behind a named arm so it can be measured against
+// itself rather than argued about — the same way the Canasta AI was built.
+// ════════════════════════════════════════════════════════════════════════
+let AI_ARM = null;            // e.g. 'nosteal', 'nohold' — see the tests
+function arm(name) { return AI_ARM === name; }
+
+// ── READING A HAND AGAINST THE CONTRACT ─────────────────────────────────
+// Every group the hand could contribute to. A candidate is some naturals plus
+// the number of jokers it would take to finish — so {cards:[7♠,7♥], jokers:1}
+// is a trio two thirds of the way there.
+//
+// A group needs at least one natural: a pile of jokers is a trio of nothing
+// and a run of no suit.
+function candidateTrios(hand) {
+  const byRank = {};
+  hand.filter(c => !c.isJoker).forEach(c => (byRank[c.rank] = byRank[c.rank] || []).push(c));
+  const out = [];
+  Object.values(byRank).forEach(cards => {
+    const take = cards.slice(0, TRIO_MIN);
+    out.push({ kind: 'trio', cards: take, jokers: Math.max(0, TRIO_MIN - take.length) });
+  });
+  return out;
+}
+
+function candidateRuns(hand) {
+  const bySuit = {};
+  hand.filter(c => !c.isJoker).forEach(c => (bySuit[c.suit] = bySuit[c.suit] || []).push(c));
+  const out = [];
+  const seen = new Set();
+  Object.entries(bySuit).forEach(([suit, cards]) => {
+    for (let start = 0; start < RANKS.length; start++) {
+      const want = [];
+      for (let k = 0; k < RUN_MIN; k++) want.push((start + k) % RANKS.length);
+      const have = [];
+      want.forEach(i => {
+        const c = cards.find(x => RANKS.indexOf(x.rank) === i && !have.includes(x));
+        if (c) have.push(c);
+      });
+      if (!have.length) continue;
+      const key = suit + ':' + have.map(c => c.id).sort().join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ kind: 'run', cards: have, jokers: RUN_MIN - have.length });
+    }
+  });
+  return out;
+}
+
+// The best way to read this hand as the contract: the selection of disjoint
+// groups that uses the most NATURALS, since every natural used is a card the
+// player no longer has to find.
+//
+//   deficit = slots − naturals used − jokers held
+//
+// Zero means the contract can go down this turn. Jokers are counted at the end
+// rather than assigned to a particular group, because a joker fits anywhere and
+// pinning it early only produces worse answers.
+function readHand(hand, con) {
+  const slots = con.trios * TRIO_MIN + con.runs * RUN_MIN;
+  const jokersHeld = hand.filter(c => c.isJoker).length;
+  const trios = candidateTrios(hand).sort((a, b) => b.cards.length - a.cards.length);
+  const runs  = candidateRuns(hand).sort((a, b) => b.cards.length - a.cards.length);
+
+  let best = { used: -1, groups: [] };
+  const used = new Set();
+  const pick = (needT, needR, chosen, count) => {
+    // Nothing left to choose: score it.
+    if (needT === 0 && needR === 0) {
+      if (count > best.used) best = { used: count, groups: [...chosen] };
+      return;
+    }
+    // Branch and bound — even taking whole groups from here cannot beat best.
+    const ceiling = count + needT * TRIO_MIN + needR * RUN_MIN;
+    if (ceiling <= best.used) return;
+    const pool = needT > 0 ? trios : runs;
+    for (const g of pool) {
+      if (g.cards.some(c => used.has(c))) continue;
+      g.cards.forEach(c => used.add(c));
+      chosen.push(g);
+      pick(needT > 0 ? needT - 1 : 0, needT > 0 ? needR : needR - 1,
+           chosen, count + g.cards.length);
+      chosen.pop();
+      g.cards.forEach(c => used.delete(c));
+    }
+    // Taking none of this kind is also an answer when the hand is bare.
+    if (!pool.length) {
+      pick(needT > 0 ? needT - 1 : 0, needT > 0 ? needR : needR - 1, chosen, count);
+    }
+  };
+  pick(con.trios, con.runs, [], 0);
+
+  const deficit = Math.max(0, slots - best.used - jokersHeld);
+  return { deficit, naturalsUsed: best.used, groups: best.groups, jokersHeld, slots };
+}
+
+// Can it go down right now, and with which cards? Jokers are handed out here —
+// to the groups that need them, biggest shortfall first, so a run two cards
+// short is finished before a trio one card short is padded.
+function buildContract(hand, con) {
+  const read = readHand(hand, con);
+  if (read.deficit > 0) return null;
+  const jokers = hand.filter(c => c.isJoker);
+  const groups = read.groups
+    .map(g => ({ ...g, cards: [...g.cards] }))
+    .sort((a, b) => b.jokers - a.jokers);
+  let n = 0;
+  for (const g of groups) {
+    for (let k = 0; k < g.jokers; k++) {
+      if (n >= jokers.length) return null;
+      g.cards.push(jokers[n++]);
+    }
+  }
+  // Put them back in contract order — trios first, then runs — so the caller's
+  // declaration list lines up with the groups.
+  const out = [...groups.filter(g => g.kind === 'trio'), ...groups.filter(g => g.kind === 'run')];
+  return out.map(g => g.cards);
+}
+
+// ── WOULD THIS CARD HELP? ───────────────────────────────────────────────
+// The only honest measure: does the hand read better with it than without.
+function cardHelps(hand, card, con) {
+  const before = readHand(hand, con).deficit;
+  const after  = readHand([...hand, card], con).deficit;
+  return before - after;          // >0 means it moved the player closer
+}
+
+// Does this card have a home on one of this player's own melds? Once a player
+// is DOWN this is the only question that matters about a card, and it replaces
+// every contract-shaped judgement below.
+//
+//   "Players do not play on other players contracts either."
+function fitsOwnMeld(p, card) {
+  return p.melds.some(m => {
+    const after = [...m.cards, card];
+    return m.type === 'trio' ? isTrio(after) : isRun(after);
+  });
+}
+
+// ── THE DISCARD ─────────────────────────────────────────────────────────
+// Throw the card the contract does not want. Among cards that cost nothing,
+// throw the dearest — every point left in a hand counts against its owner when
+// somebody else goes out, and a joker is 25 of them.
+//
+// Safety comes last and is deliberately weak: this game shows almost nothing
+// about what an opponent is collecting until they go down, and guessing from
+// the discards alone is how a player talks themselves out of a good throw.
+function aiDiscardChoice(seat) {
+  const p = G.players[seat];
+  const con = contract();
+  if (!p.hand.length) return null;
+  // ONCE DOWN, THE CONTRACT IS NOT THE QUESTION ANY MORE.
+  //
+  // This used to score a down player's hand against the contract it had
+  // already laid, which is a question with no answer — so every card tied and
+  // the tie-break threw the dearest. Four players each keeping their cheapest
+  // cards ended up passing the same 2s, 3s and 4s round the table for two
+  // thousand turns: thirteen rounds in forty never finished, and the stock had
+  // moved thirty-six cards in all that time because the pile always looked
+  // more attractive than a fresh draw.
+  //
+  // A player who is down wants one thing — an empty hand — so a card is worth
+  // keeping only if it has a home on their own melds.
+  if (p.down) {
+    const useless = p.hand.filter(c => !fitsOwnMeld(p, c));
+    const pool = useless.length ? useless : p.hand;
+    return pool.reduce((a, b) => cardPoints(b) > cardPoints(a) ? b : a);
+  }
+  const base = readHand(p.hand, con).deficit;
+  let best = null, bestKey = null;
+  p.hand.forEach(card => {
+    const rest = p.hand.filter(c => c !== card);
+    const cost = readHand(rest, con).deficit - base;   // 0 = not needed
+    const key = [cost, -cardPoints(card)];
+    if (!bestKey || key[0] < bestKey[0] ||
+        (key[0] === bestKey[0] && key[1] < bestKey[1])) {
+      best = card; bestKey = key;
+    }
+  });
+  return best;
+}
+
+// ── DRAW OR TAKE THE FACE-UP CARD ───────────────────────────────────────
+function aiWantsDiscard(seat) {
+  if (arm('nodraw')) return false;
+  const top = topOfDiscard();
+  if (!top || G.pileDead) return false;
+  const p = G.players[seat];
+  // Down: the face-up card is worth taking only if it can go straight back out
+  // onto a meld. Anything else is one more card to get rid of.
+  if (p.down) return fitsOwnMeld(p, top);
+  return cardHelps(p.hand, top, contract()) > 0;
+}
+
+// ── CALLING HOLD ────────────────────────────────────────────────────────
+// A steal costs TWO cards — the one taken and the penalty from stock — and
+// every card in a hand is a card that has to be got rid of before going out.
+// So it is worth it only when the card is one the contract actually needs, and
+// not when the round is nearly over and the penalty would more likely be
+// points in hand than help.
+const STEAL_MIN_STOCK = 10;
+function aiWantsToSteal(seat, card) {
+  if (arm('nosteal')) return false;
+  const p = G.players[seat];
+  if (p.down) return false;                     // already down; nothing to build
+  if (G.stock.length < STEAL_MIN_STOCK) return false;
+  return cardHelps(p.hand, card, contract()) > 0;
+}
+
+// Everyone who would call hold on the card just discarded. The human is asked
+// separately — this is the AI seats only, and each decides from its own hand.
+function aiClaimants(discarder, humanSeat) {
+  const out = [];
+  for (let s = 0; s < G.seats; s++) {
+    if (s === discarder || s === humanSeat) continue;
+    if (aiWantsToSteal(s, topOfDiscard())) out.push(s);
+  }
+  return out;
+}
+
+// ── GOING DOWN, AND WHEN NOT TO ─────────────────────────────────────────
+//   "Players have the option of placing their contract cards down or waiting to
+//    completely meld all their cards. Melding completely earns more points than
+//    placing the contract and eventually going out. However, this move is
+//    risky."
+//
+// The risk is being caught holding the lot. So: go down as soon as the contract
+// is there — EXCEPT when the whole hand can go in one turn, which is the -20
+// and is not a gamble at all once it is in reach.
+//
+// Holding a complete contract back in the hope of going out later is the gamble
+// she describes, and it is not taken: an opponent going out first turns a made
+// contract into a hand full of penalty points.
+function aiCanGoOutNow(seat) {
+  const p = G.players[seat];
+  const con = contract();
+  const groups = buildContract(p.hand, con);
+  if (!groups) return null;
+  const spare = p.hand.filter(c => !groups.flat().includes(c));
+  if (spare.length === 0) return null;          // nothing to throw; impossible
+  // Everything but one card has to find a home on our own melds.
+  const melds = groups.map(g => ({ type: isTrio(g) ? 'trio' : 'run', cards: [...g] }));
+  const left = [...spare];
+  let moved = true;
+  while (moved && left.length > 1) {
+    moved = false;
+    for (let i = 0; i < left.length && left.length > 1; i++) {
+      for (const m of melds) {
+        const after = [...m.cards, left[i]];
+        if (m.type === 'trio' ? isTrio(after) : isRun(after)) {
+          m.cards = after; left.splice(i, 1); moved = true; break;
+        }
+      }
+      if (moved) break;
+    }
+  }
+  return left.length === 1 ? { groups, discard: left[0] } : null;
+}
+
+// Lay the contract, naming any end-joker. The AI declares the HIGH cap by
+// default — 4-5-6-(7) rather than (3)-4-5-6 — which is her own reading of what
+// an end joker is for, and the choice only matters when it is later bought
+// back.
+function aiLayContract(seat) {
+  const p = G.players[seat];
+  const groups = buildContract(p.hand, contract());
+  if (!groups) return false;
+  const declares = groups.map(g => {
+    if (isTrio(g)) return null;
+    const r = resolveRun(g);
+    if (!r || !r.need) return null;
+    return r.choices[r.choices.length - 1];     // the high cap
+  });
+  return layContract(seat, groups, declares).ok;
+}
+
+// Shed whatever the melds will take, down to the last card.
+function aiLayOff(seat) {
+  const p = G.players[seat];
+  let moved = true, any = false;
+  while (moved && p.hand.length > 1) {
+    moved = false;
+    for (const card of [...p.hand]) {
+      if (p.hand.length <= 1) break;
+      for (let m = 0; m < p.melds.length; m++) {
+        if (layOff(seat, [card], m).ok) { moved = true; any = true; break; }
+      }
+      if (moved) break;
+    }
+  }
+  return any;
+}
+
+// One AI turn, start to finish.
+function aiTakeTurn(seat) {
+  if (G.roundOver || G.turn !== seat) return false;
+  if (G.phase === 'draw') {
+    if (aiWantsDiscard(seat)) takeDiscard(seat); else drawFromStock(seat);
+  }
+  if (G.phase !== 'meld') return false;
+  const p = G.players[seat];
+  if (!p.down) {
+    const out = aiCanGoOutNow(seat);
+    if (out) { aiLayContract(seat); aiLayOff(seat); }
+    else aiLayContract(seat);
+  }
+  if (p.down) aiLayOff(seat);
+  const card = aiDiscardChoice(seat);
+  if (!card) return false;
+  discardCard(seat, card);
+  return true;
+}
+
+// Play a whole round with every seat on the AI, resolving steals between
+// turns. Returns the scores. This is the soak: a game that cannot finish
+// itself has a bug in it somewhere, and nothing else finds those.
+function playRound(contractIdx, dealer, seed, seats, maxTurns) {
+  startRound(contractIdx, dealer, seed, seats);
+  let turns = 0;
+  const cap = maxTurns || 2000;
+  while (!G.roundOver && turns++ < cap) {
+    const seat = G.turn;
+    const before = G.discard.length;
+    if (!aiTakeTurn(seat)) break;
+    if (G.roundOver) break;
+    // Somebody may want what was just thrown.
+    if (G.discard.length > before - 1) {
+      const claims = aiClaimants(seat, -1);
+      if (claims.length) applySteal(seat, claims);
+    }
+  }
+  return { turns, over: G.roundOver, scores: scoreRound() };
+}
+
 document.getElementById('start-btn').addEventListener('click', () => {
   document.getElementById('start-btn').textContent = 'Started';
 });

@@ -28,7 +28,6 @@ tot=0; bad=0; ran=0
 
 for suite in "$HERE"/suites/*.js; do
   name="$(basename "$suite" .js)"
-  [ "$name" = "soak" ] && continue
   if [ ${#only[@]} -gt 0 ]; then
     match=0
     for want in "${only[@]}"; do [ "$want" = "$name" ] && match=1; done

@@ -8,11 +8,27 @@ every rule here is quoted at the code that implements it.
 
 ## State
 
-Built and tested: the rules engine and the round.
+Built and tested: the rules engine, the round, and an AI that plays all seven
+contracts to a finish.
 
-    ./tests/run.sh            143 assertions
+    ./tests/run.sh            160 assertions, including a 280-round soak
 
-Not built yet: the AI, the table, anything you can see.
+Not built yet: the table. Nothing you can see.
+
+### How it plays, 40 deals a contract
+
+| contract | finished | avg turns | −20 | avg losing hand |
+|---|---|---|---|---|
+| 2 trios | 40/40 | 31 | 1 | 19 |
+| 1 trio + 1 run | 40/40 | 50 | 2 | 24 |
+| 2 runs | 40/40 | 66 | 0 | 29 |
+| 3 trios | 40/40 | 32 | 0 | 28 |
+| 2 trios + 1 run | 40/40 | 36 | 5 | 44 |
+| 1 trio + 2 runs | 40/40 | 60 | 1 | 35 |
+| 3 runs | 40/40 | 63 | 0 | 47 |
+
+Runs are the hard part, as they should be — the run contracts take twice as
+long and leave twice the points in hand.
 
 ## Corrections to the document
 
