@@ -280,6 +280,17 @@ body {
 .flyer { position: fixed; z-index: 70; pointer-events: none;
          transition: transform .55s cubic-bezier(.3,.7,.3,1), opacity .55s; }
 .src-glow { animation: srcGlow .55s ease-out; }
+/* The stock being rebuilt from the discards. Three cards tumble back and the
+   pile squares up, so the pile changing size is something that happens rather
+   than something that already happened. */
+.shuffling { animation: shuffleNudge .5s ease-in-out 3; }
+@keyframes shuffleNudge {
+  0%,100% { transform: none; }
+  30%     { transform: translate(-7px, -3px) rotate(-6deg); }
+  70%     { transform: translate(6px, -2px) rotate(5deg); }
+}
+.shuffle-fly { position: fixed; z-index: 68; pointer-events: none;
+               transition: transform .5s ease-in, opacity .5s; }
 @keyframes srcGlow {
   0%   { filter: brightness(1.9) drop-shadow(0 0 12px var(--gold)); }
   100% { filter: none; }
@@ -817,6 +828,17 @@ function applySteal(discarder, claims) {
   if (claim.penalty) {
     refillStockIfEmpty();
     if (G.stock.length) G.players[claim.seat].hand.push(G.stock.shift());
+  } else {
+    // NO PENALTY MEANS IT WAS THEIR TURN, AND THIS WAS THEIR DRAW.
+    //
+    //   "when i discard and west takes my discard, it then proceeds to take
+    //    another card"
+    //
+    // Quite so: the seat at distance 1 is the player about to play, and taking
+    // the face-up card is the ordinary way to start a turn, not a steal on top
+    // of one. The phase was left on 'draw', so they took the card and then
+    // drew again — seven cards to nine on a single turn.
+    if (claim.seat === G.turn) { G.phase = 'meld'; G.drewThisTurn = true; }
   }
   // Turn order is untouched — see nextSeat(). Only the pile changes.
   G.pileDead = pileIsDeadAfter(claim);
@@ -1061,7 +1083,15 @@ function scoreRound() {
 // itself rather than argued about — the same way the Canasta AI was built.
 // ════════════════════════════════════════════════════════════════════════
 let AI_ARM = null;            // e.g. 'nosteal', 'nohold' — see the tests
-function arm(name) { return AI_ARM === name; }
+// Per-seat arms, so a change can be played AGAINST itself at the same table.
+// A symmetric soak cannot tell "this helps me" from "this helps everybody":
+// four seats all declining to feed their left makes every hand lighter, which
+// looks like a gain and may be nothing of the kind.
+let AI_ARMS = null;           // e.g. [null,'nocare',null,'nocare']
+function arm(name, seat) {
+  if (AI_ARMS && seat !== undefined) return AI_ARMS[seat] === name;
+  return AI_ARM === name;
+}
 
 // ── READING A HAND AGAINST THE CONTRACT ─────────────────────────────────
 // Every group the hand could contribute to. A candidate is some naturals plus
@@ -1203,6 +1233,22 @@ function fitsOwnMeld(p, card) {
 // Safety comes last and is deliberately weak: this game shows almost nothing
 // about what an opponent is collecting until they go down, and guessing from
 // the discards alone is how a player talks themselves out of a good throw.
+// Would the seat to my left have an obvious use for this card? Only what the
+// table shows: their melds, which anyone can see. Their hand is theirs.
+//
+//   "ai's need to be careful, as much as possible, not to discard a card that
+//    the next player can take and meld onto their hand"
+//
+// Two ways it helps them, and the second is the one that stings: a card that
+// goes straight onto a meld of theirs, and a card that buys a joker back off
+// the table.
+function feedsNextPlayer(seat, card) {
+  if (arm('nocare', seat)) return false;
+  const left = G.players[nextSeat(seat, G.seats)];
+  if (left.down && fitsOwnMeld(left, card)) return true;
+  return !!buysAJoker(card, seat);
+}
+
 function aiDiscardChoice(seat) {
   const p = G.players[seat];
   const con = contract();
@@ -1221,7 +1267,12 @@ function aiDiscardChoice(seat) {
   // keeping only if it has a home on their own melds.
   if (p.down) {
     const useless = p.hand.filter(c => !fitsOwnMeld(p, c));
-    const pool = useless.length ? useless : p.hand;
+    let pool = useless.length ? useless : p.hand;
+    // Among cards we do not want, prefer one the player on our left cannot
+    // use. "As much as possible" — if every one of them helps them, the turn
+    // still has to end, so throw the dearest and take the loss.
+    const safe = pool.filter(c => !feedsNextPlayer(seat, c));
+    if (safe.length) pool = safe;
     return pool.reduce((a, b) => cardPoints(b) > cardPoints(a) ? b : a);
   }
   const base = readHand(p.hand, con).deficit;
@@ -1229,9 +1280,14 @@ function aiDiscardChoice(seat) {
   p.hand.forEach(card => {
     const rest = p.hand.filter(c => c !== card);
     const cost = readHand(rest, con).deficit - base;   // 0 = not needed
-    const key = [cost, -cardPoints(card)];
+    // Cost to us first, then whether it helps the player on our left, then the
+    // points. Second and not first on purpose: a card the contract needs is
+    // worth more than a card an opponent might use, and a discard that wrecks
+    // our own hand to be tidy is a bad trade.
+    const key = [cost, feedsNextPlayer(seat, card) ? 1 : 0, -cardPoints(card)];
     if (!bestKey || key[0] < bestKey[0] ||
-        (key[0] === bestKey[0] && key[1] < bestKey[1])) {
+        (key[0] === bestKey[0] && key[1] < bestKey[1]) ||
+        (key[0] === bestKey[0] && key[1] === bestKey[1] && key[2] < bestKey[2])) {
       best = card; bestKey = key;
     }
   });
@@ -1239,11 +1295,36 @@ function aiDiscardChoice(seat) {
 }
 
 // ── DRAW OR TAKE THE FACE-UP CARD ───────────────────────────────────────
+// Is there a joker on the table that this card would buy?
+//
+//   "if there is a discard that players can take and exchange with a joker on
+//    the table, they should take it, this is mainly true when they can
+//    exchange without a penalty during their turn"
+//
+// A joker is the most useful card in the game and twenty-five points against
+// you if you are caught with it — but held it fits anywhere, which is what
+// finishes a contract. Taking a 6♥ to turn it into a joker is a straight
+// upgrade and it costs nothing on your own turn.
+function buysAJoker(card, seat) {
+  if (arm('nojokerbuy', seat)) return null;
+  for (let s = 0; s < G.seats; s++) {
+    for (const m of G.players[s].melds) {
+      for (const c of m.cards) {
+        if (!c.isJoker) continue;
+        if (cardBuysJoker(card, jokerStandsFor(m, c))) return { seat: s, meld: m, joker: c };
+      }
+    }
+  }
+  return null;
+}
+
 function aiWantsDiscard(seat) {
-  if (arm('nodraw')) return false;
+  if (arm('nodraw', seat)) return false;
   const top = topOfDiscard();
   if (!top || G.pileDead) return false;
   const p = G.players[seat];
+  // A card that buys a joker is worth taking whatever else it is for.
+  if (buysAJoker(top, seat)) return true;
   // Down: the face-up card is worth taking only if it can go straight back out
   // onto a meld. Anything else is one more card to get rid of.
   if (p.down) return fitsOwnMeld(p, top);
@@ -1258,7 +1339,7 @@ function aiWantsDiscard(seat) {
 // points in hand than help.
 const STEAL_MIN_STOCK = 10;
 function aiWantsToSteal(seat, card) {
-  if (arm('nosteal')) return false;
+  if (arm('nosteal', seat)) return false;
   const p = G.players[seat];
   if (p.down) return false;                     // already down; nothing to build
   if (G.stock.length < STEAL_MIN_STOCK) return false;
@@ -1373,10 +1454,29 @@ function aiDrawPhase(seat) {
 }
 
 // One AI turn, start to finish.
+// Cash in any card we hold that buys a joker off the table. Free on our own
+// turn, and a joker in hand is worth more than the natural it replaces.
+function aiBuyJokers(seat) {
+  if (arm('nojokerbuy', seat)) return false;
+  let any = true, did = false;
+  while (any) {
+    any = false;
+    for (const card of [...G.players[seat].hand]) {
+      if (card.isJoker) continue;
+      const hit = buysAJoker(card, seat);
+      if (!hit) continue;
+      const mi = G.players[hit.seat].melds.indexOf(hit.meld);
+      if (exchangeJoker(seat, card, hit.seat, mi, hit.joker).ok) { any = true; did = true; break; }
+    }
+  }
+  return did;
+}
+
 function aiTakeTurn(seat) {
   if (G.roundOver || G.turn !== seat) return false;
   if (G.phase === 'draw') aiDrawPhase(seat);
   if (G.phase !== 'meld') return false;
+  aiBuyJokers(seat);
   const p = G.players[seat];
   if (!p.down) {
     const out = aiCanGoOutNow(seat);
@@ -1393,6 +1493,7 @@ function aiTakeTurn(seat) {
 // The second half: everything after the draw.
 function aiPlayPhase(seat) {
   if (G.roundOver || G.turn !== seat || G.phase !== 'meld') return false;
+  aiBuyJokers(seat);
   const p = G.players[seat];
   if (!p.down) {
     if (aiCanGoOutNow(seat)) { aiLayContract(seat); aiLayOff(seat); }
@@ -1613,6 +1714,35 @@ function flyCard(fromEl, toEl, card, faceUp, done) {
 
 // What each seat last did, shown under its name until it does something else.
 const lastAction = [null, null, null, null];
+
+// The discards going back under the stock.
+//
+//   "can you show cards shuffling when the discard pile is reshuffled"
+//
+// It used to happen between two renders: the pile was forty cards and then it
+// was one, with nothing in between to say why.
+function showShuffle() {
+  const from = el('drop-discard'), to = el('src-stock');
+  if (!from || !to) return;
+  const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+  to.classList.add('shuffling');
+  setTimeout(() => to.classList.remove('shuffling'), 1500);
+  for (let k = 0; k < 5; k++) {
+    const d = cardEl(null, false);
+    d.className += ' shuffle-fly';
+    d.style.left = a.left + 'px';
+    d.style.top = a.top + 'px';
+    d.style.transitionDelay = (k * 85) + 'ms';
+    document.body.appendChild(d);
+    requestAnimationFrame(() => {
+      d.style.transform =
+        `translate(${b.left - a.left}px, ${b.top - a.top}px) rotate(${(k - 2) * 14}deg)`;
+      d.style.opacity = '0.15';
+    });
+    setTimeout(() => d.remove(), 700 + k * 85);
+  }
+  banner('The stock ran out — the discards are shuffled back.', 2600);
+}
 
 // What is under the pointer, ignoring the card being dragged. Its own element
 // sits directly beneath the finger, so it has to stand aside to be asked.
@@ -1885,6 +2015,8 @@ function humanPick(card) {
 
 function humanDraw() {
   if (G.turn !== ME || G.phase !== 'draw') return;
+  const refilled = G.stock.length === 0 && G.discard.length > 1;
+  if (refilled) showShuffle();
   const c = drawFromStock(ME);
   if (!c) { banner('The stock is empty.'); return; }
   banner(`You drew the ${nameCard(c)}.`, 1600);
@@ -2122,6 +2254,13 @@ function settleClaims(discarder, aiClaims, humanClaimed) {
         banner(`You held the ${nameCard(top)}, but ${SEAT_NAME[who.seat]} sits closer to `
              + `${SEAT_NAME[discarder]} and takes it. The player next in turn always wins a `
              + `contested card.`, 5200);
+      } else if (!humanClaimed && G.turn === ME && who.penalty) {
+        // Her turn was next and the card went out from under her.
+        //
+        //   "could i have a message that says i didn't take the card i wanted
+        //    because someone before me took it"
+        banner(`${SEAT_NAME[who.seat]} held the ${nameCard(top)} before your turn — `
+             + `the pile is dead this turn, so draw from the stock.`, 5200);
       }
       const beaten = claims.filter(s => s !== who.seat);
       banner(`${SEAT_NAME[who.seat]} held the ${nameCard(top)}`
@@ -2147,6 +2286,8 @@ function stepAI() {
     // it gives nothing away that the table could not already see.
     const src = G.phase === 'draw'
       ? (aiWantsDiscard(seat) ? el('src-discard') : el('src-stock')) : null;
+    if (G.phase === 'draw' && !aiWantsDiscard(seat) &&
+        G.stock.length === 0 && G.discard.length > 1) showShuffle();
     const drew = aiDrawPhase(seat);
     const seatEl = el('seat-' + seat);
     const finish = () => {

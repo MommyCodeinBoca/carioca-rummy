@@ -11,7 +11,7 @@ every rule here is quoted at the code that implements it.
 Built and tested: the rules engine, the round, and an AI that plays all seven
 contracts to a finish.
 
-    ./tests/run.sh            160 assertions, including a 280-round soak
+    ./tests/run.sh            259 assertions, including a 280-round soak
 
 The table is built and playable — one file, open `carioca.html` in a browser.
 
@@ -46,6 +46,22 @@ rather than by looking:
 
 Runs are the hard part, as they should be — the run contracts take twice as
 long and leave twice the points in hand.
+
+### Measured AI rules
+
+Each played AGAINST itself at the same table — seats 0 and 2 with the rule, 1
+and 3 without, then swapped. A symmetric soak cannot tell "this helps me" from
+"this helps everybody": four seats all declining to feed their left makes every
+hand lighter, which looks like a gain and may be nothing of the kind.
+
+350 rounds, points a seat a round, **fewest wins**:
+
+| rule | with | without | |
+|---|---|---|---|
+| buying jokers off the table | **8.3** | 26.5 | wins by 18.3 |
+| not feeding the player on your left | **14.5** | 15.3 | wins by 0.8 |
+
+Buying jokers also finishes rounds in 35 turns instead of 53.
 
 ## Corrections to the document
 
