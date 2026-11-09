@@ -388,6 +388,91 @@ window.addEventListener('load',()=>setTimeout(()=>{
      gj.standsFor && gj.standsFor.rank==='6' && gj.standsFor.suit==='♥',
      JSON.stringify(gj.standsFor));
 
+  // ── A RUN STAYS IN SEQUENCE ──────────────────────────────────────────
+  //   "when AIs place their contract they should be in numerical order if it
+  //    is a run"
+  // They were laid in order and then went out of it, because lay-off appended.
+  function runDown(myHand){
+    startRound(2,0,4242,4);                  // 2 runs
+    document.getElementById('overlay').style.display='none';
+    G.players[0].hand=[C('4','♥'),C('5','♥'),C('6','♥'),C('7','♥'),
+                       C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠')].concat(myHand);
+    G.turn=0; G.phase='meld';
+    render();
+    selected=G.players[0].hand.slice(0,8);
+    humanLayContract();
+    return G.players[0].melds[0];
+  }
+  const seq=m=>m.cards.map(c=>c.isJoker?'Jo':c.rank).join('-');
+
+  let m0=runDown([C('3','♥'), C('2','♦')]);
+  ok('the run goes down in order', seq(m0)==='4-5-6-7', seq(m0));
+  selected=[G.players[0].hand.find(c=>c.rank==='3')];
+  humanLayOff(0);
+  ok('THE REPORTED CASE: adding the 3 keeps it in order',
+     seq(G.players[0].melds[0])==='3-4-5-6-7', seq(G.players[0].melds[0]));
+
+  m0=runDown([C('8','♥'), C('2','♦')]);
+  selected=[G.players[0].hand.find(c=>c.rank==='8')];
+  humanLayOff(0);
+  ok('...and so does adding the 8', seq(G.players[0].melds[0])==='4-5-6-7-8',
+     seq(G.players[0].melds[0]));
+
+  // the AI too
+  startRound(2,0,4242,4);
+  const aj2={rank:'JOKER',suit:'★',isJoker:true,id:'aj2'};
+  G.players[2].hand=[C('4','♥'),C('5','♥'),C('6','♥'),C('7','♥'),
+                     C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠'),
+                     C('3','♥'), C('2','♦')];
+  G.turn=2; G.phase='meld';
+  aiLayContract(2); aiLayOff(2);
+  const aiRun=G.players[2].melds.find(m=>m.cards.some(c=>c.rank==='4'));
+  ok('an AI run is in order after it lays off too',
+     aiRun.cards.map(c=>c.isJoker?'Jo':c.rank).join('-')==='3-4-5-6-7',
+     aiRun.cards.map(c=>c.isJoker?'Jo':c.rank).join('-'));
+
+  // ── WHICH END DOES MY JOKER GO ON? ───────────────────────────────────
+  //   "i just placed a joker i had in my hand, and it only took it on the back
+  //    end. i wanted it in the front end because it gave me more possibilities"
+  const lj={rank:'JOKER',suit:'★',isJoker:true,id:'lj'+Math.random()};
+  m0=runDown([lj, C('2','♦')]);
+  selected=[lj];
+  humanLayOff(0);
+  const ov2=document.getElementById('overlay');
+  ok('THE REPORTED CASE: it asks which end now',
+     ov2.style.display==='flex' && /Which end/.test(ov2.textContent),
+     ov2.textContent.replace(/\s+/g,' ').trim().slice(0,50));
+  const ends=[...ov2.querySelectorAll('.action-btn')].filter(b=>!/Cancel/.test(b.textContent));
+  ok('...offering the FRONT as well as the back', ends.length===2 &&
+     ends.some(b=>/3♥/.test(b.textContent)) && ends.some(b=>/8♥/.test(b.textContent)),
+     ends.map(b=>b.textContent).join(' | '));
+  ok('...and nothing moved while it waits',
+     G.players[0].melds[0].cards.length===4);
+  ends.find(b=>/3♥/.test(b.textContent)).click();
+  ok('THE FIX: choosing the front puts it at the front',
+     seq(G.players[0].melds[0])==='Jo-4-5-6-7', seq(G.players[0].melds[0]));
+  ok('...and it stands for the 3♥, so the 3♥ can buy it back',
+     lj.standsFor && lj.standsFor.rank==='3' && lj.standsFor.suit==='♥',
+     JSON.stringify(lj.standsFor));
+
+  // a joker with only one legal home is not asked about
+  const gj2={rank:'JOKER',suit:'★',isJoker:true,id:'gj2'};
+  startRound(2,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  G.players[0].melds=[{type:'run',cards:[C('4','♥'),C('5','♥'),C('6','♥'),
+                                         C('7','♥'),C('8','♥'),C('9','♥'),
+                                         C('10','♥'),C('J','♥'),C('Q','♥'),
+                                         C('K','♥'),C('A','♥'),C('2','♥')]}];
+  G.players[0].down=true;
+  G.players[0].hand=[gj2, C('5','♠')];
+  G.turn=0; G.phase='meld'; render();
+  selected=[gj2];
+  humanLayOff(0);
+  ok('a run with one slot left does not ask',
+     document.getElementById('overlay').style.display!=='flex' &&
+     G.players[0].melds[0].cards.length===13,
+     G.players[0].melds[0].cards.length+' cards');
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';

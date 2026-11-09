@@ -556,15 +556,26 @@ function resolveRun(cards, declared) {
   }
   if (!fits.length) return null;
 
-  let chosen = fits[0];
-  if (fits.length > 1) {
+  // Several readings that put the jokers in the SAME place are one reading.
+  // A run of thirteen can start anywhere and always leaves the same single
+  // gap; asking which card the joker is would be asking a question with one
+  // answer. Deduped on the gaps, which is the only part anybody cares about.
+  const bySig = new Map();
+  fits.forEach(f => {
+    const sig = [...f.gaps].sort((a, b) => a - b).join(',');
+    if (!bySig.has(sig)) bySig.set(sig, f);
+  });
+  const distinct = [...bySig.values()];
+
+  let chosen = distinct[0];
+  if (distinct.length > 1) {
     const want = (declared || []).map(declaredRankIndex).sort((a, b) => a - b);
-    const match = fits.filter(f =>
+    const match = distinct.filter(f =>
       f.gaps.length === want.length &&
       [...f.gaps].sort((a, b) => a - b).every((g, i) => g === want[i]));
     if (match.length !== 1) {
       return { need: 'declare',
-               choices: fits.map(f => f.gaps.map(g => RANKS[g] + suit)) };
+               choices: distinct.map(f => f.gaps.map(g => RANKS[g] + suit)) };
     }
     chosen = match[0];
   }
@@ -875,7 +886,10 @@ function layContract(seat, groups, declares) {
 //    turn."
 //   "A player can only discard onto their own melds."
 //   "Players do not play on other players contracts either."
-function layOff(seat, cards, meldIndex) {
+// `declared` names any joker being added to a run that could sit at either
+// end — one rank per such joker. Omitted, an ambiguous add is refused and the
+// caller is told to ask.
+function layOff(seat, cards, meldIndex, declared) {
   const p = G.players[seat];
   if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
   if (!p.down) return { ok: false, why: 'lay your contract first' };
@@ -895,15 +909,37 @@ function layOff(seat, cards, meldIndex) {
   const after = [...meld.cards, ...cards];
   const stillGood = meld.type === 'trio' ? isTrio(after) : isRun(after);
   if (!stillGood) return { ok: false, why: `that does not fit your ${meld.type}` };
-  meld.cards = after;
-  // A joker added to a run now stands for whatever slot it filled, so it can
-  // be bought back like any other. Only where the arrangement is unambiguous —
-  // on the end it could be either side, and nobody can say which.
+
   if (meld.type === 'run') {
-    const r = resolveRun(meld.cards);
-    if (r && !r.need) r.jokers.forEach(j => {
-      j.card.standsFor = { rank: j.rank, suit: j.suit };
-    });
+    // A RUN IS KEPT IN SEQUENCE.
+    //
+    //   "when AIs place their contract they should be in numerical order if it
+    //    is a run"
+    //
+    // They were laid in order and then went out of it, because this appended:
+    // 4-5-6-7 plus the 3 became 4,5,6,7,3. Every run is re-read into sequence
+    // after the add, so order survives whatever is laid onto it.
+    //
+    // Jokers already down keep the rank they were declared as — their identity
+    // was settled when they were laid and buying one back depends on it.
+    const held = meld.cards.filter(c => c.isJoker && c.standsFor).map(c => c.standsFor.rank);
+    const adding = cards.filter(c => c.isJoker).length;
+    const want = held.concat(declared || []);
+    const r = resolveRun(after, want.length ? want : undefined);
+    if (!r) return { ok: false, why: 'that does not fit your run' };
+    if (r.need === 'declare') {
+      // A joker that could cap either end is the player's choice, not ours.
+      //
+      //   "i just placed a joker i had in my hand, and it only took it on the
+      //    back end. i wanted it in the front end because it gave me more
+      //    possibilities"
+      return { ok: false, need: 'declare', choices: r.choices, adding,
+               why: 'say which card the joker stands for' };
+    }
+    meld.cards = r.order;
+    r.jokers.forEach(j => { j.card.standsFor = { rank: j.rank, suit: j.suit }; });
+  } else {
+    meld.cards = after;
   }
   p.hand = p.hand.filter(c => !cards.includes(c));
   return { ok: true };
@@ -1304,7 +1340,13 @@ function aiLayOff(seat) {
     for (const card of [...p.hand]) {
       if (p.hand.length <= 1) break;
       for (let m = 0; m < p.melds.length; m++) {
-        if (layOff(seat, [card], m).ok) { moved = true; any = true; break; }
+        let res = layOff(seat, [card], m);
+        // Nobody to ask, so the AI takes the high cap, as it does when laying
+        // a contract. A human is asked — see humanLayOff().
+        if (res.need === 'declare' && res.choices && res.choices.length) {
+          res = layOff(seat, [card], m, res.choices[res.choices.length - 1]);
+        }
+        if (res.ok) { moved = true; any = true; break; }
       }
       if (moved) break;
     }
@@ -1517,10 +1559,11 @@ function renderFan(host, cards, faceUp, onClick) {
         dropTargets(false);
         const hit = under(d, ev.clientX, ev.clientY);
         if (hit && hit.kind === 'meld') {
-          const res = layOff(ME, [c], hit.index);
-          if (!res.ok) banner(res.why, 4000);
-          selected = selected.filter(x => x !== c);
-          render();
+          const res = tryLayOff([c], hit.index);
+          if (res && res.need !== 'declare') {
+            selected = selected.filter(x => x !== c);
+            render();
+          }
           return;
         }
         if (hit && hit.kind === 'discard') {
@@ -1932,9 +1975,52 @@ function humanLayOff(meldIndex) {
          + 'drag the card onto it.', 4200);
     return;
   }
-  const res = layOff(ME, selected, meldIndex);
-  if (!res.ok) { banner(res.why, 4000); return; }
+  tryLayOff(selected, meldIndex);
+}
+
+// One place for both routes into a lay-off — the tap and the drag — so an
+// ambiguous joker is asked about either way.
+function tryLayOff(cards, meldIndex, declared) {
+  const res = layOff(ME, cards, meldIndex, declared);
+  if (res.need === 'declare') { showLayOffDeclare(cards, meldIndex, res.choices); return res; }
+  if (!res.ok) { banner(res.why, 4000); return res; }
   selected = [];
+  render();
+  return res;
+}
+
+function showLayOffDeclare(cards, meldIndex, choices) {
+  const meld = G.players[ME].melds[meldIndex];
+  const shown = meld.cards.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
+  window._loChoices = choices;
+  window._loPending = { cards, meldIndex };
+  const btns = choices.map((ch, k) =>
+    `<button class="action-btn" style="margin:5px;"
+       onclick="pickLayOffDeclaration(${k})">${ch.join(' and ')}</button>`).join('');
+  el('overlay').innerHTML = `<div class="panel">
+      <h2>Which end?</h2>
+      <p style="opacity:.85;margin:4px 0 6px;">Your run: <b>${shown}</b></p>
+      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:340px;">
+        The Joker can go on either end of this run. Pick the card it stands for —
+        it decides which way the run can still grow.</p>
+      <div>${btns}</div>
+      <div style="margin-top:10px;">
+        <button class="action-btn" onclick="cancelLayOffDeclare()">Cancel</button></div>
+    </div>`;
+  el('overlay').style.display = 'flex';
+}
+
+function pickLayOffDeclaration(k) {
+  const p = window._loPending;
+  if (!p) return;
+  window._loPending = null;
+  el('overlay').style.display = 'none';
+  tryLayOff(p.cards, p.meldIndex, window._loChoices[k]);
+}
+
+function cancelLayOffDeclare() {
+  window._loPending = null;
+  el('overlay').style.display = 'none';
   render();
 }
 
