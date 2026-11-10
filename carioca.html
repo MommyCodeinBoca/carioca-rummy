@@ -380,7 +380,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '0.8';
+const APP_VERSION = '0.9';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -954,16 +954,41 @@ function layOff(seat, cards, meldIndex, declared) {
     // was settled when they were laid and buying one back depends on it.
     const held = meld.cards.filter(c => c.isJoker && c.standsFor).map(c => c.standsFor.rank);
     const adding = cards.filter(c => c.isJoker).length;
-    const want = held.concat(declared || []);
+    // ONE RANK PER JOKER, AND NO MORE.
+    //
+    //   "i had 2 jokers which i had exchanged and i was going to place them one
+    //    after the other but it didn't let me, i only placed one then it
+    //    wouldn't let me place the next one behind it"
+    //
+    // This used to be held.concat(declared). A declaration comes back out of
+    // `choices`, which already covers EVERY joker in the run — so adding the
+    // held one again made three ranks for two jokers, and nothing she picked
+    // could ever match. The second joker could not be placed at all.
+    const want = (declared && declared.length) ? declared : held;
     const r = resolveRun(after, want.length ? want : undefined);
     if (!r) return { ok: false, why: 'that does not fit your run' };
     if (r.need === 'declare') {
+      // Only arrangements in which every rank already claimed is still claimed
+      // by SOME joker in the run. The jokers may shuffle which of them is
+      // which — adding one at the front of Jo-4-5-6-7 makes the new one the 2
+      // and the old one the 3, or the other way about — and that is harmless,
+      // because what matters to a player holding a card is whether a joker
+      // standing for it is still there to buy. What would NOT be harmless is a
+      // rank quietly vanishing from the run while somebody waits to buy it.
+      let choices = r.choices;
+      if (held.length) {
+        const keep = choices.filter(ch =>
+          held.every(h => ch.some(x => declaredRankIndex(x) === RANKS.indexOf(h))));
+        if (keep.length) choices = keep;
+      }
+      // Narrowed to one, there is nothing left to ask.
+      if (choices.length === 1) return layOff(seat, cards, meldIndex, choices[0]);
       // A joker that could cap either end is the player's choice, not ours.
       //
       //   "i just placed a joker i had in my hand, and it only took it on the
       //    back end. i wanted it in the front end because it gave me more
       //    possibilities"
-      return { ok: false, need: 'declare', choices: r.choices, adding,
+      return { ok: false, need: 'declare', choices, adding,
                why: 'say which card the joker stands for' };
     }
     meld.cards = r.order;

@@ -144,6 +144,59 @@ window.addEventListener('load',()=>setTimeout(()=>{
     ok('...and the joker was named, so it can be bought back',
         !!aj.standsFor, JSON.stringify(aj.standsFor));
 
+    // ── TWO JOKERS, ONE AFTER THE OTHER ─────────────────────────────────
+    //   "i had 2 jokers which i had exchanged and i was going to place them
+    //    one after the other but it didn't let me, i only placed one then it
+    //    wouldn't let me place the next one behind it"
+    function twoJokerBoard(){
+      startRound(2, 0, 4242, 4);
+      const a=J(), b=J();
+      G.players[0].melds=[{type:'run',
+        cards:[C('4','♥'),C('5','♥'),C('6','♥'),C('7','♥')]}];
+      G.players[0].down=true;
+      G.players[0].hand=[a, b, C('2','♦')];
+      G.turn=0; G.phase='meld';
+      return [a,b];
+    }
+    const [ja,jb]=twoJokerBoard();
+    const seq=()=>G.players[0].melds[0].cards.map(c=>c.isJoker?'Jo':c.rank).join('-');
+    res=layOff(0,[ja],0);
+    ok('the first joker asks which end', res.need==='declare');
+    res=layOff(0,[ja],0,res.choices.find(ch=>/3♥/.test(ch.join())));
+    ok('...and goes on the front', res.ok && seq()==='Jo-4-5-6-7', seq());
+    ok('...standing for the 3♥',
+        ja.standsFor && ja.standsFor.rank==='3', JSON.stringify(ja.standsFor));
+
+    res=layOff(0,[jb],0);
+    ok('THE REPORTED CASE: the second one asks too', res.need==='declare',
+        JSON.stringify(res.choices));
+    ok('...and every choice keeps the 3♥ claimed',
+        res.choices.every(ch=>ch.some(x=>/^3/.test(x))),
+        JSON.stringify(res.choices));
+    res=layOff(0,[jb],0,res.choices.find(ch=>/2♥/.test(ch.join())));
+    ok('THE FIX: answering actually places it', res.ok===true, res.why||'ok');
+    ok('...both jokers at the front', seq()==='Jo-Jo-4-5-6-7', seq());
+    ok('...and it is still a run', isRun(G.players[0].melds[0].cards));
+    const ranks=G.players[0].melds[0].cards.filter(c=>c.isJoker)
+                  .map(c=>c.standsFor && c.standsFor.rank).sort();
+    ok('...the two of them standing for the 2 and the 3, in some order',
+        ranks.join(',')==='2,3', ranks.join(','));
+    ok('...so a 3♥ can still buy one',
+        G.players[0].melds[0].cards.some(c=>c.isJoker &&
+          cardBuysJoker(C('3','♥'), jokerStandsFor(G.players[0].melds[0], c))));
+
+    // and when only one arrangement survives, it is not asked at all
+    twoJokerBoard();
+    G.players[0].melds=[{type:'run',cards:[C('A','♥'),C('2','♥'),C('3','♥'),
+                                           C('4','♥'),C('5','♥'),C('6','♥'),
+                                           C('7','♥'),C('8','♥'),C('9','♥'),
+                                           C('10','♥'),C('J','♥'),C('Q','♥')]}];
+    G.players[0].down=true;
+    const solo=J();
+    G.players[0].hand=[solo, C('2','♦')];
+    res=layOff(0,[solo],0);
+    ok('a run with one slot left is not asked about', res.ok===true, res.why||'ok');
+
    }catch(e){ R.push('FAIL — THREW: '+flat(e.message+' @ '+(e.stack||'').split('\n')[1])); }
    ok('no uncaught JS errors', errs.length===0, errs.slice(0,3).join(' | '));
    const pre=document.createElement('pre'); pre.id='results';
