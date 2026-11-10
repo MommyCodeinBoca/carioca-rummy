@@ -349,7 +349,10 @@ body {
     <div class="side mini" id="seat-3"></div>
   </div>
   <div class="row" id="row-melds"><div id="my-melds" class="meld-row"></div></div>
-  <div class="row" id="row-acts"><div id="actions" class="row"></div></div>
+  <div class="row" id="row-acts">
+    <div id="me-bar" class="row" style="gap:7px;"></div>
+    <div id="actions" class="row"></div>
+  </div>
   <div id="row-hand"><div id="my-hand" class="fan"></div></div>
 
   <div id="hold-wrap">
@@ -377,7 +380,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '0.7';
+const APP_VERSION = '0.8';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -1970,6 +1973,22 @@ function render() {
     e.addEventListener('click', () => humanLayOff(i));
     mm.appendChild(e);
   });
+  // MY OWN SCORE, which was nowhere on the table.
+  //
+  //   "what happened to my game point value? i only see the points for the AIs"
+  //
+  // Each AI seat carries a chip and this seat carried nothing — the one score
+  // she actually needs. Her hand's value goes beside it too: for an opponent
+  // that is a leak and she had it taken out, but these are her own cards and
+  // it is exactly the number she loses if somebody else goes out first.
+  const me = G.players[ME];
+  el('me-bar').innerHTML =
+    `<span class="seat-label">You</span>
+     <span class="pill">${me.hand.length}</span>
+     ${me.down ? '<span class="pill down">DOWN</span>' : ''}
+     <span class="chip ${me.score < 0 ? 'neg' : ''}" title="your running score">${me.score}</span>
+     <span class="pill" title="what your hand costs you if someone goes out now"
+       >hand ${handPoints(me.hand)}</span>`;
   renderFan(el('my-hand'), G.players[ME].hand, true, humanPick);
   renderActions();
   // And at the top of the turn, before the draw, when the joker is marked but

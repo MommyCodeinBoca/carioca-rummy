@@ -532,6 +532,24 @@ window.addEventListener('load',()=>setTimeout(()=>{
      G.players[0].melds[dhi].cards.map(c=>c.isJoker?'Jo':c.rank).join('-')==='Jo-4-5-6-7',
      G.players[0].melds[dhi].cards.map(c=>c.isJoker?'Jo':c.rank).join('-'));
 
+  // ── MY OWN SCORE ─────────────────────────────────────────────────────
+  //   "what happened to my game point value? i only see the points for the AIs"
+  startRound(0,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  G.players[0].score=-30; G.players[2].score=45;
+  G.players[0].hand=[C('A','♠'), C('5','♥')];
+  G.turn=0; G.phase='meld'; render();
+  const meBar=document.getElementById('me-bar');
+  ok('THE REPORTED CASE: my own score is on the table', !!meBar &&
+     /-30/.test(meBar.textContent), meBar ? meBar.textContent.trim() : 'no bar');
+  ok('...with my card count', /\b2\b/.test(meBar.textContent), meBar.textContent.trim());
+  ok('...and what my hand would cost me',
+     /hand 20/.test(meBar.textContent), meBar.textContent.trim());
+  ok('...while an opponent still shows only their score',
+     document.querySelector('#seat-2 .chip').textContent.trim()==='45' &&
+     !/hand/.test(document.querySelector('#seat-2').textContent),
+     document.querySelector('#seat-2').textContent.replace(/\s+/g,' ').trim().slice(0,40));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';
