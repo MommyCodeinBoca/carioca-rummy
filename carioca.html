@@ -264,6 +264,10 @@ body {
   border: 3px solid var(--gold); border-radius: 18px;
   padding: 26px 34px; text-align: center; max-width: 92%;
   box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+  /* A run with three Jokers in it offers three readings, each a row of its
+     own. Stacked under the explanation that overflowed the panel and the
+     buttons went off the top of the screen, where nothing can click them. */
+  max-height: 92%; overflow-y: auto;
 }
 #overlay h2 { margin: 0 0 6px; font-size: 1.5rem; }
 /* Who took what, shown on the seat that did it rather than only in a banner.
@@ -380,7 +384,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '0.9';
+const APP_VERSION = '1.0';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -2221,21 +2225,43 @@ function askDeclarations(groups, declares, i) {
   render();
 }
 
+// Show a choice as the RUN IT MAKES, not as a list of card names.
+//
+//   "look at my hand and see what it is asking me, because i do not understand"
+//
+// Her run was A♠ 10♠ J♠ K♠ and three Jokers, and the options read "8♠ and 9♠
+// and Q♠", "9♠ and Q♠ and 2♠", "Q♠ and 2♠ and 3♠". Every one of those is a
+// true statement about which cards the Jokers would stand for, and none of
+// them shows the thing being chosen: where the run sits. Laid out in sequence
+// with the Jokers in place, the question answers itself.
+function choiceLine(cards, choice) {
+  const r = resolveRun(cards, choice);
+  if (!r || r.need) return choice.join(' and ');
+  return r.order.map(c => {
+    if (!c.isJoker) return `<span style="opacity:.95">${c.rank}${c.suit}</span>`;
+    const j = r.jokers.find(x => x.card === c);
+    return `<span style="color:var(--gold);">(${j ? j.rank + j.suit : 'J'})</span>`;
+  }).join(' ');
+}
+
 function showDeclareModal(groups, declares, i, choices) {
   const run = groups[i].slice().sort((a, b) =>
     (a.isJoker ? 99 : RANKS.indexOf(a.rank)) - (b.isJoker ? 99 : RANKS.indexOf(b.rank)));
   const shown = run.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
   window._declChoices = choices;
   const btns = choices.map((ch, k) =>
-    `<button class="action-btn" style="margin:5px;"
-       onclick="pickDeclaration(${i}, ${k})">${ch.join(' and ')}</button>`).join('');
+    `<button class="action-btn" style="margin:5px;display:block;width:100%;
+       font-size:.98rem;letter-spacing:.02em;"
+       onclick="pickDeclaration(${i}, ${k})">${choiceLine(groups[i], ch)}</button>`).join('');
   el('overlay').innerHTML = `<div class="panel">
-      <h2>Which card is the Joker?</h2>
-      <p style="opacity:.85;margin:4px 0 6px;">Your run: <b>${shown}</b></p>
-      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:330px;">
-        A Joker on the end can cap either side. Whichever you choose is the card
-        it stands for — and the card another player could later swap for it.</p>
-      <div>${btns}</div>
+      <h2>Where does this run sit?</h2>
+      <p style="opacity:.85;margin:4px 0 6px;">You picked: <b>${shown}</b></p>
+      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:380px;">
+        Your Jokers can stand in anywhere, so the same cards make more than one
+        run. Pick the one you want — the cards in
+        <span style="color:var(--gold)">(gold)</span> are what the Jokers become,
+        and those are the cards another player could swap for them.</p>
+      <div style="max-width:380px;margin:0 auto;">${btns}</div>
     </div>`;
   el('overlay').style.display = 'flex';
   window._declPending = { groups, declares };
@@ -2278,15 +2304,18 @@ function showLayOffDeclare(cards, meldIndex, choices) {
   const shown = meld.cards.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
   window._loChoices = choices;
   window._loPending = { cards, meldIndex };
+  const after = [...meld.cards, ...cards];
   const btns = choices.map((ch, k) =>
-    `<button class="action-btn" style="margin:5px;"
-       onclick="pickLayOffDeclaration(${k})">${ch.join(' and ')}</button>`).join('');
+    `<button class="action-btn" style="margin:5px;display:block;width:100%;
+       font-size:.98rem;letter-spacing:.02em;"
+       onclick="pickLayOffDeclaration(${k})">${choiceLine(after, ch)}</button>`).join('');
   el('overlay').innerHTML = `<div class="panel">
-      <h2>Which end?</h2>
+      <h2>Where does this run sit?</h2>
       <p style="opacity:.85;margin:4px 0 6px;">Your run: <b>${shown}</b></p>
-      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:340px;">
-        The Joker can go on either end of this run. Pick the card it stands for —
-        it decides which way the run can still grow.</p>
+      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:380px;">
+        Pick where the run should sit — the cards in
+        <span style="color:var(--gold)">(gold)</span> are what the Jokers become,
+        and they decide which way it can still grow.</p>
       <div>${btns}</div>
       <div style="margin-top:10px;">
         <button class="action-btn" onclick="cancelLayOffDeclare()">Cancel</button></div>

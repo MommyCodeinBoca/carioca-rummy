@@ -356,7 +356,7 @@ window.addEventListener('load',()=>setTimeout(()=>{
   humanLayContract();
   const ov=document.getElementById('overlay');
   ok('THE REPORTED CASE: it now ASKS, with buttons',
-     ov.style.display==='flex' && /Which card is the Joker/.test(ov.textContent),
+     ov.style.display==='flex' && /Where does this run sit/.test(ov.textContent),
      ov.textContent.replace(/\s+/g,' ').trim().slice(0,60));
   const picks=[...ov.querySelectorAll('.action-btn')];
   ok('...offering both caps', picks.length===2,
@@ -364,8 +364,8 @@ window.addEventListener('load',()=>setTimeout(()=>{
   ok('...and nothing has gone down while it waits',
      G.players[0].melds.length===0);
   // choose the low cap, which the old silent default would never have picked
-  const low=picks.find(b=>/3♥/.test(b.textContent));
-  ok('...the LOW cap is on offer', !!low, picks.map(b=>b.textContent).join(' | '));
+  const low=picks.find(b=>/\(3♥\)/.test(b.textContent));
+  ok('...the LOW cap is on offer', !!low, picks.map(b=>b.textContent.trim()).join(' | '));
   low.click();
   ok('THE FIX: choosing it lays the contract',
      G.players[0].melds.length===2, G.players[0].melds.length+' melds');
@@ -444,16 +444,16 @@ window.addEventListener('load',()=>setTimeout(()=>{
   const hi=heartsIdx();
   humanLayOff(hi);
   const ov2=document.getElementById('overlay');
-  ok('THE REPORTED CASE: it asks which end now',
-     ov2.style.display==='flex' && /Which end/.test(ov2.textContent),
+  ok('THE REPORTED CASE: it asks where the run sits now',
+     ov2.style.display==='flex' && /Where does this run sit/.test(ov2.textContent),
      ov2.textContent.replace(/\s+/g,' ').trim().slice(0,50));
   const ends=[...ov2.querySelectorAll('.action-btn')].filter(b=>!/Cancel/.test(b.textContent));
   ok('...offering the FRONT as well as the back', ends.length===2 &&
-     ends.some(b=>/3♥/.test(b.textContent)) && ends.some(b=>/8♥/.test(b.textContent)),
-     ends.map(b=>b.textContent).join(' | '));
+     ends.some(b=>/\(3♥\)/.test(b.textContent)) && ends.some(b=>/\(8♥\)/.test(b.textContent)),
+     ends.map(b=>b.textContent.trim()).join(' | '));
   ok('...and nothing moved while it waits',
      G.players[0].melds[hi].cards.length===4);
-  ends.find(b=>/3♥/.test(b.textContent)).click();
+  ends.find(b=>/\(3♥\)/.test(b.textContent)).click();
   ok('THE FIX: choosing the front puts it at the front',
      seq(hearts())==='Jo-4-5-6-7', seq(hearts()));
   ok('...and it stands for the 3♥, so the 3♥ can buy it back',
@@ -507,8 +507,8 @@ window.addEventListener('load',()=>setTimeout(()=>{
   dcard.dispatchEvent(new PointerEvent('pointerup',
     {clientX:mbox.left+mbox.width/2,clientY:mbox.top+mbox.height/2,pointerId:91,bubbles:true}));
   const dov=document.getElementById('overlay');
-  ok('dragging the joker onto the run asks which end',
-     dov.style.display==='flex' && /Which end/.test(dov.textContent),
+  ok('dragging the joker onto the run asks where it sits',
+     dov.style.display==='flex' && /Where does this run sit/.test(dov.textContent),
      dov.textContent.replace(/\s+/g,' ').trim().slice(0,40));
   ok('THE REPORTED CASE: no card is left lifted over the table',
      [...document.getElementById('my-hand').children]
@@ -517,16 +517,20 @@ window.addEventListener('load',()=>setTimeout(()=>{
        .map(e=>e.style.zIndex).join(','));
   // EVERY button must be the topmost thing at its own centre, wherever it sits
   const dbtns=[...dov.querySelectorAll('.action-btn')];
+  // The topmost element at a button's centre is usually a span INSIDE it —
+  // the card text — and a click on that still reaches the button. What must
+  // not be there is something from outside the panel.
   const blocked=dbtns.filter(b=>{
     const r2=b.getBoundingClientRect();
-    return document.elementFromPoint(r2.left+r2.width/2, r2.top+r2.height/2) !== b;
+    const top=document.elementFromPoint(r2.left+r2.width/2, r2.top+r2.height/2);
+    return !top || !b.contains(top);
   });
   ok('...and every button is clickable where it sits', blocked.length===0,
      blocked.length+' of '+dbtns.length+' covered');
   ok('...the panel outranks a dragged card',
      parseInt(getComputedStyle(dov).zIndex,10) > 200,
      'overlay z '+getComputedStyle(dov).zIndex);
-  const front=dbtns.find(b=>/3♥/.test(b.textContent));
+  const front=dbtns.find(b=>/\(3♥\)/.test(b.textContent));
   front.click();
   ok('...and clicking it works',
      G.players[0].melds[dhi].cards.map(c=>c.isJoker?'Jo':c.rank).join('-')==='Jo-4-5-6-7',
