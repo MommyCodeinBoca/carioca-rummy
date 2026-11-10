@@ -478,6 +478,60 @@ window.addEventListener('load',()=>setTimeout(()=>{
      G.players[0].melds[0].cards.length===13,
      G.players[0].melds[0].cards.length+' cards');
 
+  // ── A QUESTION YOU CAN ANSWER ────────────────────────────────────────
+  //   "i have a joker and i want to place on my run, but won't let me. it is
+  //    asking where i want but won't let me click anything."
+  //
+  // A dragged card is lifted to z-index 200 so it rides over the table. When
+  // the drop asked a question, the card stayed there — over a panel at 60 —
+  // eating the clicks meant for its buttons. Whether it covered them depended
+  // on where the run happened to sit, which is why it worked on one screen and
+  // not another.
+  startRound(2,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  const dlj={rank:'JOKER',suit:'★',isJoker:true,id:'dlj'+Math.random()};
+  G.players[0].hand=[C('4','♥'),C('5','♥'),C('6','♥'),C('7','♥'),
+                     C('9','♠'),C('10','♠'),C('J','♠'),C('Q','♠'), dlj, C('2','♦')];
+  G.turn=0; G.phase='meld'; render();
+  selected=G.players[0].hand.slice(0,8);
+  humanLayContract();
+  const dhi=G.players[0].melds.findIndex(m=>m.cards.some(c=>c.suit==='♥'&&!c.isJoker));
+  const mbox=document.getElementById('my-melds').children[dhi].getBoundingClientRect();
+  const dfan=document.getElementById('my-hand');
+  const dji=G.players[0].hand.indexOf(dlj);
+  const dcard=dfan.children[dji], dr=dcard.getBoundingClientRect();
+  dcard.dispatchEvent(new PointerEvent('pointerdown',
+    {clientX:dr.left+20,clientY:dr.top+40,pointerId:91,bubbles:true}));
+  dcard.dispatchEvent(new PointerEvent('pointermove',
+    {clientX:mbox.left+mbox.width/2,clientY:mbox.top+mbox.height/2,pointerId:91,bubbles:true}));
+  dcard.dispatchEvent(new PointerEvent('pointerup',
+    {clientX:mbox.left+mbox.width/2,clientY:mbox.top+mbox.height/2,pointerId:91,bubbles:true}));
+  const dov=document.getElementById('overlay');
+  ok('dragging the joker onto the run asks which end',
+     dov.style.display==='flex' && /Which end/.test(dov.textContent),
+     dov.textContent.replace(/\s+/g,' ').trim().slice(0,40));
+  ok('THE REPORTED CASE: no card is left lifted over the table',
+     [...document.getElementById('my-hand').children]
+       .every(e=>parseInt(e.style.zIndex||'0',10) < 100),
+     [...document.getElementById('my-hand').children]
+       .map(e=>e.style.zIndex).join(','));
+  // EVERY button must be the topmost thing at its own centre, wherever it sits
+  const dbtns=[...dov.querySelectorAll('.action-btn')];
+  const blocked=dbtns.filter(b=>{
+    const r2=b.getBoundingClientRect();
+    return document.elementFromPoint(r2.left+r2.width/2, r2.top+r2.height/2) !== b;
+  });
+  ok('...and every button is clickable where it sits', blocked.length===0,
+     blocked.length+' of '+dbtns.length+' covered');
+  ok('...the panel outranks a dragged card',
+     parseInt(getComputedStyle(dov).zIndex,10) > 200,
+     'overlay z '+getComputedStyle(dov).zIndex);
+  const front=dbtns.find(b=>/3♥/.test(b.textContent));
+  front.click();
+  ok('...and clicking it works',
+     G.players[0].melds[dhi].cards.map(c=>c.isJoker?'Jo':c.rank).join('-')==='Jo-4-5-6-7',
+     G.players[0].melds[dhi].cards.map(c=>c.isJoker?'Jo':c.rank).join('-'));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';

@@ -249,8 +249,13 @@ body {
   border-radius: 12px; padding: 12px 22px; font-weight: 700;
   max-width: 80%; text-align: center; display: none; z-index: 40;
 }
+/* Above EVERYTHING, including a card mid-drag. A dragged card is lifted to
+   z-index 200 so it rides over the table, and when the drop opens a question
+   the card was still sitting there at 200 over a panel at 60 — eating the
+   clicks meant for its buttons:
+     "it is asking where i want but won't let me click anything" */
 #overlay {
-  position: absolute; inset: 0; z-index: 60;
+  position: absolute; inset: 0; z-index: 300;
   background: rgba(0,0,0,0.62);
   display: flex; align-items: center; justify-content: center;
 }
@@ -304,7 +309,7 @@ body {
    under the discard pile it is talking about. */
 #hold-wrap {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, 14px);
-  z-index: 55; display: none; text-align: center;
+  z-index: 250; display: none; text-align: center;
   background: rgba(0,0,0,0.82); border: 3px solid var(--gold);
   border-radius: 14px; padding: 14px 20px 12px;
   box-shadow: 0 10px 34px rgba(0,0,0,0.6);
@@ -372,7 +377,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '0.6';
+const APP_VERSION = '0.7';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -1756,10 +1761,11 @@ function renderFan(host, cards, faceUp, onClick) {
         const hit = under(d, ev.clientX, ev.clientY);
         if (hit && hit.kind === 'meld') {
           const res = tryLayOff([c], hit.index);
-          if (res && res.need !== 'declare') {
-            selected = selected.filter(x => x !== c);
-            render();
-          }
+          // Re-draw whatever the answer was. The card has to go back to the
+          // fan either way — left where the drag dropped it, it is a lifted
+          // element with no job, covering anything underneath.
+          if (res && res.need !== 'declare') selected = selected.filter(x => x !== c);
+          render();
           return;
         }
         if (hit && hit.kind === 'discard') {
