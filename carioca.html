@@ -1105,8 +1105,46 @@ function candidateTrios(hand) {
   hand.filter(c => !c.isJoker).forEach(c => (byRank[c.rank] = byRank[c.rank] || []).push(c));
   const out = [];
   Object.values(byRank).forEach(cards => {
-    const take = cards.slice(0, TRIO_MIN);
-    out.push({ kind: 'trio', cards: take, jokers: Math.max(0, TRIO_MIN - take.length) });
+    if (cards.length <= TRIO_MIN) {
+      out.push({ kind: 'trio', cards: cards.slice(),
+                 jokers: Math.max(0, TRIO_MIN - cards.length) });
+      return;
+    }
+    // MORE THAN THREE OF A RANK MEANS MORE THAN ONE TRIO TO CHOOSE FROM, and
+    // which three matters when one of them is wanted somewhere else.
+    //
+    //   "i had 10,J,Joker,King,A, then i had 2 trios one of J's and one of 2's
+    //    ... and it refused to let me play the contract down"
+    //
+    // Four Jacks: three in the trio and the J♦ in her diamond run. This took
+    // the first three in hand order, which was J♦ J♠ J♥ — stealing the J♦ out
+    // of the run and leaving it needing three jokers. The arrangement she could
+    // plainly see (J♠ J♥ J♣, and the J♦ in the run) was never offered to the
+    // search at all.
+    //
+    // Deduped on suits, because two decks make identical cards and C(8,3) of
+    // them is just the same trio over and over. Capped at the first six of a
+    // rank: twenty combinations is plenty and the search is cubic in these.
+    const pool = cards.slice(0, 6);
+    const seen = new Set();
+    for (let a = 0; a < pool.length; a++)
+      for (let b = a + 1; b < pool.length; b++)
+        for (let c = b + 1; c < pool.length; c++) {
+          const take = [pool[a], pool[b], pool[c]];
+          const key = take.map(x => x.suit).sort().join('');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ kind: 'trio', cards: take, jokers: 0 });
+        }
+    // And the pair-plus-joker readings, which a hand short of a third needs.
+    const pairSeen = new Set();
+    for (let a = 0; a < pool.length; a++)
+      for (let b = a + 1; b < pool.length; b++) {
+        const key = [pool[a].suit, pool[b].suit].sort().join('');
+        if (pairSeen.has(key)) continue;
+        pairSeen.add(key);
+        out.push({ kind: 'trio', cards: [pool[a], pool[b]], jokers: 1 });
+      }
   });
   return out;
 }
@@ -1185,7 +1223,17 @@ function readHand(hand, con) {
 // Can it go down right now, and with which cards? Jokers are handed out here —
 // to the groups that need them, biggest shortfall first, so a run two cards
 // short is finished before a trio one card short is padded.
-function buildContract(hand, con) {
+// `extend` adds any card still spare onto a group it fits, which is her rule:
+//
+//   "Players are allowed to place more cards on their contract trios or runs.
+//    They can do this while placing their contract down or on a subsequent
+//    turn."
+//
+// Only for a HUMAN laying a chosen selection. The AI calls this with its whole
+// hand, where extending would shovel everything onto the table at once and
+// leave nothing to discard — it lays the contract and then sheds through
+// aiLayOff(), which has its own floor.
+function buildContract(hand, con, extend) {
   const read = readHand(hand, con);
   if (read.deficit > 0) return null;
   const jokers = hand.filter(c => c.isJoker);
@@ -1197,6 +1245,29 @@ function buildContract(hand, con) {
     for (let k = 0; k < g.jokers; k++) {
       if (n >= jokers.length) return null;
       g.cards.push(jokers[n++]);
+    }
+  }
+  if (extend) {
+    const used = new Set(groups.flatMap(g => g.cards));
+    // Everything offered that fits goes on. Keeping a card to discard is NOT
+    // this function's business: it is handed a selection, and the discard comes
+    // from the rest of the hand. Guarding here kept the A♦ off a run she had
+    // explicitly picked, because the selection happened to have one spare.
+    let spare = hand.filter(c => !used.has(c));
+    let moved = true;
+    while (moved && spare.length > 0) {
+      moved = false;
+      for (const c of spare) {
+        for (const g of groups) {
+          const after = [...g.cards, c];
+          if (g.kind === 'trio' ? isTrio(after) : isRun(after)) {
+            g.cards = after; used.add(c);
+            spare = spare.filter(x => x !== c);
+            moved = true; break;
+          }
+        }
+        if (moved) break;
+      }
     }
   }
   // Put them back in contract order — trios first, then runs — so the caller's
@@ -2036,9 +2107,15 @@ function humanTakeDiscard() {
 // and which are the runs — the same job readHand() already does for the AI.
 function humanLayContract() {
   const con = contract();
-  const groups = buildContract(selected, con);
+  const groups = buildContract(selected, con, true);
   if (!groups) {
     banner(`Those cards are not ${con.name}. Pick exactly the contract.`, 4200);
+    return;
+  }
+  // The hand has to keep one back to end the turn with — see layOff().
+  if (G.players[ME].hand.length - groups.flat().length < 1) {
+    banner('Keep a card to discard — that is how a turn ends. '
+         + 'Leave one out of the selection.', 4600);
     return;
   }
   askDeclarations(groups, groups.map(() => null), 0);
