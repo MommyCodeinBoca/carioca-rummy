@@ -30,10 +30,15 @@ window.addEventListener('load',()=>setTimeout(()=>{
     const read=readHand(h, con);
     ok('THE REPORTED CASE: the hand reads as complete', read.deficit===0,
         'deficit '+read.deficit+', naturals '+read.naturalsUsed);
-    ok('...and the J trio leaves the J♦ for the run',
-        read.groups.some(g=>g.kind==='trio' && g.cards[0].rank==='J' &&
-                            g.cards.every(c=>c.suit!=='♦')),
-        read.groups.map(g=>g.kind+':'+g.cards.map(c=>c.rank+c.suit).join('')).join('  '));
+    // readHand() returns a PLAN now — which ranks the trios want and which
+    // windows the runs want — because naming particular cards is what broke
+    // on four Jacks and again on three identical 7♥. The cards are handed out
+    // in buildContract(), which is where the assertion below looks.
+    ok('...and the plan wants a J trio and a diamond run',
+        read.plan.trios.includes('J') &&
+        read.plan.runs.some(r=>r.suit==='♦'),
+        'trios '+read.plan.trios.join(',')+'   runs '+
+        read.plan.runs.map(r=>r.suit+r.ranks.join('')).join(' '));
 
     h=herHand();
     let built=buildContract(h, con);

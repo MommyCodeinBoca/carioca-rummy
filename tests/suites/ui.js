@@ -401,22 +401,26 @@ window.addEventListener('load',()=>setTimeout(()=>{
     render();
     selected=G.players[0].hand.slice(0,8);
     humanLayContract();
-    return G.players[0].melds[0];
+    return hearts();
   }
+  // Find the run by what is IN it, not by its index. The order groups come
+  // back in is the planner's business and has changed once already.
+  const heartsIdx=()=>G.players[0].melds
+    .findIndex(m=>m.cards.some(c=>c.suit==='♥'&&!c.isJoker));
+  const hearts=()=>G.players[0].melds[heartsIdx()];
   const seq=m=>m.cards.map(c=>c.isJoker?'Jo':c.rank).join('-');
 
   let m0=runDown([C('3','♥'), C('2','♦')]);
   ok('the run goes down in order', seq(m0)==='4-5-6-7', seq(m0));
   selected=[G.players[0].hand.find(c=>c.rank==='3')];
-  humanLayOff(0);
+  humanLayOff(heartsIdx());
   ok('THE REPORTED CASE: adding the 3 keeps it in order',
-     seq(G.players[0].melds[0])==='3-4-5-6-7', seq(G.players[0].melds[0]));
+     seq(hearts())==='3-4-5-6-7', seq(hearts()));
 
   m0=runDown([C('8','♥'), C('2','♦')]);
   selected=[G.players[0].hand.find(c=>c.rank==='8')];
-  humanLayOff(0);
-  ok('...and so does adding the 8', seq(G.players[0].melds[0])==='4-5-6-7-8',
-     seq(G.players[0].melds[0]));
+  humanLayOff(heartsIdx());
+  ok('...and so does adding the 8', seq(hearts())==='4-5-6-7-8', seq(hearts()));
 
   // the AI too
   startRound(2,0,4242,4);
@@ -426,7 +430,7 @@ window.addEventListener('load',()=>setTimeout(()=>{
                      C('3','♥'), C('2','♦')];
   G.turn=2; G.phase='meld';
   aiLayContract(2); aiLayOff(2);
-  const aiRun=G.players[2].melds.find(m=>m.cards.some(c=>c.rank==='4'));
+  const aiRun=G.players[2].melds.find(m=>m.cards.some(c=>c.suit==='♥'&&!c.isJoker));
   ok('an AI run is in order after it lays off too',
      aiRun.cards.map(c=>c.isJoker?'Jo':c.rank).join('-')==='3-4-5-6-7',
      aiRun.cards.map(c=>c.isJoker?'Jo':c.rank).join('-'));
@@ -437,7 +441,8 @@ window.addEventListener('load',()=>setTimeout(()=>{
   const lj={rank:'JOKER',suit:'★',isJoker:true,id:'lj'+Math.random()};
   m0=runDown([lj, C('2','♦')]);
   selected=[lj];
-  humanLayOff(0);
+  const hi=heartsIdx();
+  humanLayOff(hi);
   const ov2=document.getElementById('overlay');
   ok('THE REPORTED CASE: it asks which end now',
      ov2.style.display==='flex' && /Which end/.test(ov2.textContent),
@@ -447,10 +452,10 @@ window.addEventListener('load',()=>setTimeout(()=>{
      ends.some(b=>/3♥/.test(b.textContent)) && ends.some(b=>/8♥/.test(b.textContent)),
      ends.map(b=>b.textContent).join(' | '));
   ok('...and nothing moved while it waits',
-     G.players[0].melds[0].cards.length===4);
+     G.players[0].melds[hi].cards.length===4);
   ends.find(b=>/3♥/.test(b.textContent)).click();
   ok('THE FIX: choosing the front puts it at the front',
-     seq(G.players[0].melds[0])==='Jo-4-5-6-7', seq(G.players[0].melds[0]));
+     seq(hearts())==='Jo-4-5-6-7', seq(hearts()));
   ok('...and it stands for the 3♥, so the 3♥ can buy it back',
      lj.standsFor && lj.standsFor.rank==='3' && lj.standsFor.suit==='♥',
      JSON.stringify(lj.standsFor));

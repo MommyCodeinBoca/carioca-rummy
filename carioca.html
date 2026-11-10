@@ -372,7 +372,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '0.1';
+const APP_VERSION = '0.6';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -1100,124 +1100,121 @@ function arm(name, seat) {
 //
 // A group needs at least one natural: a pile of jokers is a trio of nothing
 // and a run of no suit.
-function candidateTrios(hand) {
-  const byRank = {};
-  hand.filter(c => !c.isJoker).forEach(c => (byRank[c.rank] = byRank[c.rank] || []).push(c));
-  const out = [];
-  Object.values(byRank).forEach(cards => {
-    if (cards.length <= TRIO_MIN) {
-      out.push({ kind: 'trio', cards: cards.slice(),
-                 jokers: Math.max(0, TRIO_MIN - cards.length) });
-      return;
-    }
-    // MORE THAN THREE OF A RANK MEANS MORE THAN ONE TRIO TO CHOOSE FROM, and
-    // which three matters when one of them is wanted somewhere else.
-    //
-    //   "i had 10,J,Joker,King,A, then i had 2 trios one of J's and one of 2's
-    //    ... and it refused to let me play the contract down"
-    //
-    // Four Jacks: three in the trio and the J♦ in her diamond run. This took
-    // the first three in hand order, which was J♦ J♠ J♥ — stealing the J♦ out
-    // of the run and leaving it needing three jokers. The arrangement she could
-    // plainly see (J♠ J♥ J♣, and the J♦ in the run) was never offered to the
-    // search at all.
-    //
-    // Deduped on suits, because two decks make identical cards and C(8,3) of
-    // them is just the same trio over and over. Capped at the first six of a
-    // rank: twenty combinations is plenty and the search is cubic in these.
-    const pool = cards.slice(0, 6);
-    const seen = new Set();
-    for (let a = 0; a < pool.length; a++)
-      for (let b = a + 1; b < pool.length; b++)
-        for (let c = b + 1; c < pool.length; c++) {
-          const take = [pool[a], pool[b], pool[c]];
-          const key = take.map(x => x.suit).sort().join('');
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push({ kind: 'trio', cards: take, jokers: 0 });
-        }
-    // And the pair-plus-joker readings, which a hand short of a third needs.
-    const pairSeen = new Set();
-    for (let a = 0; a < pool.length; a++)
-      for (let b = a + 1; b < pool.length; b++) {
-        const key = [pool[a].suit, pool[b].suit].sort().join('');
-        if (pairSeen.has(key)) continue;
-        pairSeen.add(key);
-        out.push({ kind: 'trio', cards: [pool[a], pool[b]], jokers: 1 });
-      }
+// ── READING A HAND AGAINST THE CONTRACT ─────────────────────────────────
+// Cards are counted, never reserved by identity.
+//
+// The first version picked particular cards for each candidate group and then
+// looked for groups that did not overlap. Two decks make that wrong twice
+// over: four Jacks with one wanted in a run, and the trio offered only the
+// first three in hand order —
+//
+//   "it refused to let me play the contract down"
+//
+// — and then, after that was patched, identical cards. A hand with three 7♥
+// still failed, because the run candidate and the trio candidate both named
+// THE SAME 7♥ and nothing could substitute its twin. Built to contain their
+// own contract and handed back, 262 hands in 2,800 were refused.
+//
+// So: runs demand exact cards (a run of hearts needs the 9 OF HEARTS), trios
+// demand a rank and do not care about suits. Satisfy the runs first because
+// they are the constrained ones, then take whatever is left for the trios.
+function handSupply(hand) {
+  const exact = new Map(), rank = new Map();
+  hand.filter(c => !c.isJoker).forEach(c => {
+    exact.set(c.rank + '|' + c.suit, (exact.get(c.rank + '|' + c.suit) || 0) + 1);
+    rank.set(c.rank, (rank.get(c.rank) || 0) + 1);
   });
-  return out;
+  return { exact, rank };
 }
 
-function candidateRuns(hand) {
-  const bySuit = {};
-  hand.filter(c => !c.isJoker).forEach(c => (bySuit[c.suit] = bySuit[c.suit] || []).push(c));
-  const out = [];
-  const seen = new Set();
-  Object.entries(bySuit).forEach(([suit, cards]) => {
+// Every run window worth trying: a suit and a starting rank, with at least one
+// card of it in hand. Deduped on which of its ranks the hand can actually
+// supply, since two windows that take the same cards are one choice.
+function runWindows(hand) {
+  const sup = handSupply(hand);
+  const out = [], seen = new Set();
+  SUITS.forEach(suit => {
     for (let start = 0; start < RANKS.length; start++) {
-      const want = [];
-      for (let k = 0; k < RUN_MIN; k++) want.push((start + k) % RANKS.length);
-      const have = [];
-      want.forEach(i => {
-        const c = cards.find(x => RANKS.indexOf(x.rank) === i && !have.includes(x));
-        if (c) have.push(c);
-      });
+      const ranks = [];
+      for (let k = 0; k < RUN_MIN; k++) ranks.push(RANKS[(start + k) % RANKS.length]);
+      const have = ranks.filter(r => (sup.exact.get(r + '|' + suit) || 0) > 0);
       if (!have.length) continue;
-      const key = suit + ':' + have.map(c => c.id).sort().join(',');
+      const key = suit + ':' + have.join(',');
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ kind: 'run', cards: have, jokers: RUN_MIN - have.length });
+      out.push({ suit, ranks });
     }
   });
   return out;
 }
 
-// The best way to read this hand as the contract: the selection of disjoint
-// groups that uses the most NATURALS, since every natural used is a card the
-// player no longer has to find.
-//
-//   deficit = slots − naturals used − jokers held
-//
-// Zero means the contract can go down this turn. Jokers are counted at the end
-// rather than assigned to a particular group, because a joker fits anywhere and
-// pinning it early only produces worse answers.
 function readHand(hand, con) {
   const slots = con.trios * TRIO_MIN + con.runs * RUN_MIN;
   const jokersHeld = hand.filter(c => c.isJoker).length;
-  const trios = candidateTrios(hand).sort((a, b) => b.cards.length - a.cards.length);
-  const runs  = candidateRuns(hand).sort((a, b) => b.cards.length - a.cards.length);
+  const windows = runWindows(hand).sort((a, b) => 0);
 
-  let best = { used: -1, groups: [] };
-  const used = new Set();
-  const pick = (needT, needR, chosen, count) => {
-    // Nothing left to choose: score it.
-    if (needT === 0 && needR === 0) {
-      if (count > best.used) best = { used: count, groups: [...chosen] };
-      return;
-    }
-    // Branch and bound — even taking whole groups from here cannot beat best.
-    const ceiling = count + needT * TRIO_MIN + needR * RUN_MIN;
-    if (ceiling <= best.used) return;
-    const pool = needT > 0 ? trios : runs;
-    for (const g of pool) {
-      if (g.cards.some(c => used.has(c))) continue;
-      g.cards.forEach(c => used.add(c));
-      chosen.push(g);
-      pick(needT > 0 ? needT - 1 : 0, needT > 0 ? needR : needR - 1,
-           chosen, count + g.cards.length);
-      chosen.pop();
-      g.cards.forEach(c => used.delete(c));
-    }
-    // Taking none of this kind is also an answer when the hand is bare.
-    if (!pool.length) {
-      pick(needT > 0 ? needT - 1 : 0, needT > 0 ? needR : needR - 1, chosen, count);
+  let best = { used: -1, runs: [], trios: [] };
+
+  // Given the runs chosen, the trios are independent: each wants up to three
+  // of its own rank and the ranks do not compete, so taking the richest is
+  // simply right — no search needed.
+  const finishWithTrios = (sup, chosenRuns, runNaturals) => {
+    const left = [...sup.rank.entries()]
+      .map(([r, n]) => ({ r, n: Math.min(TRIO_MIN, n) }))
+      .sort((a, b) => b.n - a.n)
+      .slice(0, con.trios);
+    const trioNaturals = left.reduce((t, x) => t + x.n, 0);
+    const used = runNaturals + trioNaturals;
+    if (used > best.used) {
+      best = { used, runs: chosenRuns.map(x => ({ ...x })), trios: left.map(x => x.r) };
     }
   };
-  pick(con.trios, con.runs, [], 0);
+
+  const takeRun = (sup, w) => {
+    const taken = [];
+    w.ranks.forEach(r => {
+      const k = r + '|' + w.suit;
+      if ((sup.exact.get(k) || 0) > 0) {
+        sup.exact.set(k, sup.exact.get(k) - 1);
+        sup.rank.set(r, sup.rank.get(r) - 1);
+        if (!sup.rank.get(r)) sup.rank.delete(r);
+        taken.push(r);
+      }
+    });
+    return taken;
+  };
+  const putRun = (sup, w, taken) => {
+    taken.forEach(r => {
+      const k = r + '|' + w.suit;
+      sup.exact.set(k, (sup.exact.get(k) || 0) + 1);
+      sup.rank.set(r, (sup.rank.get(r) || 0) + 1);
+    });
+  };
+
+  const sup = handSupply(hand);
+  const chooseRuns = (i, from, chosen, naturals) => {
+    if (i === con.runs) { finishWithTrios(sup, chosen, naturals); return; }
+    // Even taking four naturals for every remaining run cannot beat best.
+    if (naturals + (con.runs - i) * RUN_MIN + con.trios * TRIO_MIN <= best.used) return;
+    let any = false;
+    for (let k = from; k < windows.length; k++) {
+      const w = windows[k];
+      const taken = takeRun(sup, w);
+      if (taken.length) {
+        any = true;
+        chosen.push({ suit: w.suit, ranks: w.ranks, taken });
+        chooseRuns(i + 1, k + 1, chosen, naturals + taken.length);
+        chosen.pop();
+      }
+      putRun(sup, w, taken);
+    }
+    if (!any) finishWithTrios(sup, chosen, naturals);   // a hand with no run at all
+  };
+  if (con.runs === 0) finishWithTrios(sup, [], 0);
+  else chooseRuns(0, 0, [], 0);
 
   const deficit = Math.max(0, slots - best.used - jokersHeld);
-  return { deficit, naturalsUsed: best.used, groups: best.groups, jokersHeld, slots };
+  return { deficit, naturalsUsed: best.used, plan: best, jokersHeld, slots };
 }
 
 // Can it go down right now, and with which cards? Jokers are handed out here —
@@ -1236,16 +1233,43 @@ function readHand(hand, con) {
 function buildContract(hand, con, extend) {
   const read = readHand(hand, con);
   if (read.deficit > 0) return null;
-  const jokers = hand.filter(c => c.isJoker);
-  const groups = read.groups
-    .map(g => ({ ...g, cards: [...g.cards] }))
-    .sort((a, b) => b.jokers - a.jokers);
+  // The plan says WHAT is needed; hand out the actual cards here, runs first
+  // because they are the ones that want a particular suit.
+  const pool = hand.filter(c => !c.isJoker).slice();
+  const jokers = hand.filter(c => c.isJoker).slice();
+  const takeExact = (rank, suit) => {
+    const i = pool.findIndex(c => c.rank === rank && c.suit === suit);
+    return i >= 0 ? pool.splice(i, 1)[0] : null;
+  };
+  const takeRank = rank => {
+    const i = pool.findIndex(c => c.rank === rank);
+    return i >= 0 ? pool.splice(i, 1)[0] : null;
+  };
+  const groups = [];
+  read.plan.runs.forEach(r => {
+    const cards = [], gaps = [];
+    r.ranks.forEach(rank => {
+      const c = takeExact(rank, r.suit);
+      if (c) cards.push(c); else gaps.push(rank);
+    });
+    groups.push({ kind: 'run', cards, jokers: gaps.length });
+  });
+  read.plan.trios.forEach(rank => {
+    const cards = [];
+    for (let k = 0; k < TRIO_MIN; k++) { const c = takeRank(rank); if (c) cards.push(c); }
+    groups.push({ kind: 'trio', cards, jokers: TRIO_MIN - cards.length });
+  });
+  groups.sort((a, b) => b.jokers - a.jokers);
   let n = 0;
   for (const g of groups) {
     for (let k = 0; k < g.jokers; k++) {
       if (n >= jokers.length) return null;
       g.cards.push(jokers[n++]);
     }
+  }
+  // Sanity: the plan must actually have produced legal groups.
+  for (const g of groups) {
+    if (g.kind === 'trio' ? !isTrio(g.cards) : !isRun(g.cards)) return null;
   }
   if (extend) {
     const used = new Set(groups.flatMap(g => g.cards));
@@ -1860,7 +1884,8 @@ function render() {
   el('contract-line').innerHTML =
     `<div class="seat-label" style="font-size:1.05rem;">Contract ${G.contractIdx + 1} of 7
        — <span style="color:var(--gold)">${con.name}</span></div>
-     <div style="opacity:.78;font-size:.82rem;">${G.turn === ME ? 'Your turn' : SEAT_NAME[G.turn] + "'s turn"}</div>`;
+     <div style="opacity:.78;font-size:.82rem;">${G.turn === ME ? 'Your turn' : SEAT_NAME[G.turn] + "'s turn"}
+       <span style="opacity:.5;margin-left:8px;">v${APP_VERSION}</span></div>`;
 
   // The three AI seats: a small fan of backs, a count, and their melds.
   [1, 2, 3].forEach(s => {
