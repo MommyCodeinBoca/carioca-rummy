@@ -11,8 +11,12 @@ every rule here is quoted at the code that implements it.
 Built and tested: the rules engine, the round, and an AI that plays all seven
 contracts to a finish.
 
-    ./tests/run.sh            277 assertions, a 280-round soak, and 2,800
+    ./tests/run.sh            312 assertions, a 280-round soak, and 2,800
                               generated hands
+
+Deals are numbered and the number is on the table. ☰ replays the hand you are
+in; a round that ends offers the same. A game left open is picked up where it
+was when the page is opened again.
 
 The table is built and playable — one file, open `carioca.html` in a browser.
 
