@@ -400,7 +400,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -1274,7 +1274,32 @@ function readHand(hand, con) {
         left -= take;
       }
     });
-    const picked = slots.sort((a, b) => b.n - a.n).slice(0, con.trios);
+    // WHEN TWO CHOICES TIE, SPREAD ACROSS RANKS.
+    //
+    //   "it took my six Ks and split them into 2 trios ... i intended to lay
+    //    down 3 more cards"
+    //
+    // Six Ks and three 10s on a two-trio contract. Both readings use six
+    // naturals, so the sort was deciding it on hand order alone — Ks first and
+    // it took two K trios, leaving the 10s stranded in her hand with nowhere
+    // to go. The other way round it took the 10s and the Ks, and the three
+    // spare Ks then went onto the K trio as lay-offs.
+    //
+    // Same contract, three more cards off her hand, and the only difference
+    // was which rank she happened to be holding on the left. A second trio of
+    // a rank already taken buys nothing the first one cannot: spare cards of a
+    // laid rank can always be added later, while an unlaid rank's cards are
+    // stuck. So among slots of equal size, one of a rank not yet used wins.
+    const picked = [];
+    const pool = slots.sort((a, b) => b.n - a.n);
+    const usedRanks = new Set();
+    while (picked.length < con.trios && pool.length) {
+      const best = pool[0].n;
+      let i = pool.findIndex(x => x.n === best && !usedRanks.has(x.r));
+      if (i < 0) i = 0;                       // every tie is a repeat; take one
+      usedRanks.add(pool[i].r);
+      picked.push(pool.splice(i, 1)[0]);
+    }
     const trioNaturals = picked.reduce((t, x) => t + x.n, 0);
     const used = runNaturals + trioNaturals;
     if (used > best.used) {

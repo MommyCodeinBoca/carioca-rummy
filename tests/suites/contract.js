@@ -159,6 +159,54 @@ window.addEventListener('load',()=>setTimeout(()=>{
     ok('five of a rank is one trio and a pair, not two trios',
         r5.deficit===1, 'deficit '+r5.deficit+'  '+JSON.stringify(r5.plan.trios));
 
+    // ── TWO CHOICES THAT TIE: SPREAD ACROSS RANKS ─────────────────────────
+    //   "it took my six Ks and split them into 2 trios ... i intended to lay
+    //    down 3 more cards"
+    // Six Ks and three 10s on a two-trio contract. Both readings use six
+    // naturals, so the outcome was decided by hand order alone.
+    startRound(4,0,4242,4);                        // 2 trios + 1 run
+    const con5=contract();
+    const bigK=(tensFirst)=>{
+      const tens=[C('10','♦'),C('10','♥'),C('10','♠')];
+      const kings=[C('K','♥'),C('K','♥'),C('K','♠'),C('K','♣'),C('K','♦'),C('K','♥')];
+      const run=[C('4','♣'),C('5','♣'),C('6','♣'),C('7','♣')];
+      return tensFirst ? [...tens,...kings,...run] : [...kings,...tens,...run];
+    };
+    [[true,'tens first'],[false,'kings first']].forEach(([tf,label])=>{
+      const sel=bigK(tf);
+      const built=buildContract(sel, con5, true);
+      const laid=(built||[]).reduce((t,g)=>t+g.length,0);
+      ok('THE REPORTED CASE ('+label+'): every selected card goes down',
+          laid===sel.length, laid+' of '+sel.length);
+      ok('   ...with a trio of each rank, not two of one',
+          new Set((built||[]).filter(isTrio).map(trioRank)).size===2,
+          (built||[]).map(g=>trioRank(g)||'run').join(','));
+      ok('   ...and the spare Ks laid onto the K trio',
+          (built||[]).some(g=>trioRank(g)==='K' && g.length===6),
+          (built||[]).map(g=>(trioRank(g)||'run')+':'+g.length).join(' '));
+    });
+
+    // but when the contract LEAVES no choice, it still splits
+    startRound(3,0,4242,4);                        // 3 trios
+    const con4=contract();
+    const nineK=[C('10','♦'),C('10','♥'),C('10','♠'),
+                 C('K','♥'),C('K','♥'),C('K','♠'),C('K','♣'),C('K','♦'),C('K','♥')];
+    const b4=buildContract(nineK, con4, true);
+    ok('three trios from three 10s and six Ks still splits the Ks',
+        b4 && b4.length===3 &&
+        b4.filter(g=>trioRank(g)==='K').length===2,
+        (b4||[]).map(g=>trioRank(g)+':'+g.length).join(' '));
+
+    // and a tie must never cost naturals
+    startRound(4,0,4242,4);
+    const thin=[C('K','♥'),C('K','♥'),C('K','♠'),C('K','♣'),C('K','♦'),C('K','♥'),
+                C('9','♦'),C('9','♥'),
+                C('4','♣'),C('5','♣'),C('6','♣'),C('7','♣')];
+    ok('a PAIR never displaces a full trio of a repeated rank',
+        !!buildContract(thin, con5),
+        JSON.stringify(readHand(thin, con5).plan.trios)+
+        '  deficit '+readHand(thin, con5).deficit);
+
    }catch(e){ R.push('FAIL — THREW: '+flat(e.message+' @ '+(e.stack||'').split('\n')[1])); }
    ok('no uncaught JS errors', errs.length===0, errs.slice(0,3).join(' | '));
    const pre=document.createElement('pre'); pre.id='results';
