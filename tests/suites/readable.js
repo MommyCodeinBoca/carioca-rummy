@@ -23,33 +23,52 @@ window.addEventListener('load',()=>setTimeout(()=>{
   // game to find it. Anything it cannot find is a hole.
   let x=12345; const rnd=()=>{x^=x<<13;x>>>=0;x^=x>>17;x^=x<<5;x>>>=0;return x/4294967296;};
   const pick=a=>a[Math.floor(rnd()*a.length)];
-  const deck=buildDeck(2);
-  const nat=deck.filter(c=>!c.isJoker), joks=deck.filter(c=>c.isJoker);
+  // Drawn from a real remaining pack, so a hand is always one that could
+  // actually be held — and so a rank can supply TWO trios.
+  //
+  // The first version took pool[0], pool[1], pool[2] every time, which is the
+  // same three suits. Two trios of one rank therefore came out as six
+  // identical cards and the duplicate guard below skipped the hand. The
+  // generator was systematically never testing the case she hit:
+  //
+  //   "i have six 6's and 5-5-Joker, this is 3 trios but it doesn't recognize
+  //    it"
+  //
+  // A generator with a blind spot is worse than no generator, because it
+  // reports a clean sweep over the ground it declined to walk.
+  let pool = [];
+  const refill=()=>{ pool = buildDeck(2).filter(c=>!c.isJoker).map(c=>({...c})); };
+  const takeRank=r=>{ const i=pool.findIndex(c=>c.rank===r);
+    return i<0 ? null : pool.splice(i,1)[0]; };
+  const takeCard=(r,su)=>{ const i=pool.findIndex(c=>c.rank===r && c.suit===su);
+    return i<0 ? null : pool.splice(i,1)[0]; };
   const mkTrio=()=>{ const r=pick(RANKS);
-    const pool=nat.filter(c=>c.rank===r); return [pool[0],pool[1],pool[2]]
-      .map(c=>({...c,id:'t'+rnd()})); };
+    const out=[]; for (let k=0;k<3;k++){ const c=takeRank(r); if(c) out.push(c); }
+    return out.length===3 ? out : null; };
   const mkRun=(len)=>{ const s=pick(SUITS); const st=Math.floor(rnd()*13);
-    return Array.from({length:len},(_,k)=>({rank:RANKS[(st+k)%13],suit:s,
-      isJoker:false,id:'r'+rnd()})); };
+    const out=[]; for (let k=0;k<len;k++){
+      const c=takeCard(RANKS[(st+k)%13], s); if(!c) return null; out.push(c); }
+    return out; };
 
   let fails=0, tried=0; const examples=[];
   for (let ci=0; ci<CONTRACTS.length; ci++){
     const con=CONTRACTS[ci];
     for (let n=0; n<400; n++){
       tried++;
+      refill();
       const groups=[];
-      for (let t=0;t<con.trios;t++) groups.push(mkTrio());
-      for (let r=0;r<con.runs;r++) groups.push(mkRun(4));
+      let bad=false;
+      for (let t=0;t<con.trios;t++){ const g=mkTrio(); if(!g){bad=true;break;} groups.push(g); }
+      if (!bad) for (let r=0;r<con.runs;r++){ const g=mkRun(4); if(!g){bad=true;break;} groups.push(g); }
+      if (bad) continue;
       let hand=groups.flat();
-      // ids are unique but two cards can be the same rank+suit, which is legal
-      if (new Set(hand.map(c=>c.rank+c.suit)).size < hand.length - 2) continue;
       // noise: a few spare cards, often the SAME ranks, which is the shape
       // that broke her hand
       const noise=[];
       for (let k=0;k<3;k++){
-        const g=pick(groups);
-        const src=pick(g);
-        noise.push({rank:src.rank, suit:pick(SUITS), isJoker:false, id:'n'+rnd()});
+        const src=pick(pick(groups));
+        const c=takeRank(src.rank);
+        if (c) noise.push(c);
       }
       hand=hand.concat(noise);
       // shuffle the hand, since order is what broke it

@@ -401,7 +401,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.3';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -1253,14 +1253,33 @@ function readHand(hand, con) {
   // of its own rank and the ranks do not compete, so taking the richest is
   // simply right — no search needed.
   const finishWithTrios = (sup, chosenRuns, runNaturals) => {
-    const left = [...sup.rank.entries()]
-      .map(([r, n]) => ({ r, n: Math.min(TRIO_MIN, n) }))
-      .sort((a, b) => b.n - a.n)
-      .slice(0, con.trios);
-    const trioNaturals = left.reduce((t, x) => t + x.n, 0);
+    // A RANK CAN MAKE MORE THAN ONE TRIO.
+    //
+    //   "i have six 6's and 5-5-Joker, this is 3 trios but it doesn't
+    //    recognize it"
+    //
+    // Quite so — six of a rank is two trios, and with two decks that is an
+    // ordinary hand rather than a curiosity. This took one entry per rank, so
+    // the second trio of 6s was invisible: it read her hand as five naturals
+    // and a deficit of three, and refused a contract she was holding whole.
+    //
+    // Each rank offers floor-ish as many trios as it can fill, biggest first,
+    // and the richest `con.trios` of all of them are taken. The ranks do not
+    // compete for each other's cards, so there is nothing to search.
+    const slots = [];
+    sup.rank.forEach((n, r) => {
+      let left = n;
+      while (left > 0) {
+        const take = Math.min(TRIO_MIN, left);
+        slots.push({ r, n: take });
+        left -= take;
+      }
+    });
+    const picked = slots.sort((a, b) => b.n - a.n).slice(0, con.trios);
+    const trioNaturals = picked.reduce((t, x) => t + x.n, 0);
     const used = runNaturals + trioNaturals;
     if (used > best.used) {
-      best = { used, runs: chosenRuns.map(x => ({ ...x })), trios: left.map(x => x.r) };
+      best = { used, runs: chosenRuns.map(x => ({ ...x })), trios: picked.map(x => x.r) };
     }
   };
 
@@ -1297,7 +1316,12 @@ function readHand(hand, con) {
       if (taken.length) {
         any = true;
         chosen.push({ suit: w.suit, ranks: w.ranks, taken });
-        chooseRuns(i + 1, k + 1, chosen, naturals + taken.length);
+        // `k`, not `k + 1`: the SAME window may be taken twice. Two decks hold
+        // two of every card, so A-2-3-4 of diamonds is a legal pair of runs
+        // and this refused it — the same blind spot as one trio per rank, one
+        // layer along. Supply is what stops it repeating pointlessly: the
+        // second pass finds nothing left and `taken.length` is zero.
+        chooseRuns(i + 1, k, chosen, naturals + taken.length);
         chosen.pop();
       }
       putRun(sup, w, taken);
