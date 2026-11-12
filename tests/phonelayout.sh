@@ -58,6 +58,28 @@ document.getElementById('f').addEventListener('load', function(){
       ok('nor off either side', rt <= W + 1 && lf >= -1,
          'left '+Math.round(lf)+'  right '+Math.round(rt));
 
+      // A DEALT HAND IS NOT THE BIGGEST HAND. The opening contract deals
+      // seven, the last deals thirteen, and stealing grows it further. This
+      // only ever looked at whatever happened to be on the table, so it passed
+      // for weeks while thirteen cards ran off both edges of the phone — and a
+      // card off the edge is a card you cannot see you have selected.
+      var sizes = [7, 11, 13, 18, 24], bad = [];
+      sizes.forEach(function(n){
+        w.eval('G.turn=0; G.phase="meld";'
+             + 'G.players[0].hand=Array.from({length:'+n+'},function(_,i){'
+             + ' return {rank:RANKS[i%13],suit:SUITS[i%4],isJoker:false,id:"z"+i}; });'
+             + 'render();');
+        var l2=1e9, r2=-1e9, b2=0;
+        Array.prototype.forEach.call(d.getElementById('my-hand').children, function(c){
+          var r=c.getBoundingClientRect();
+          l2=Math.min(l2,r.left); r2=Math.max(r2,r.right); b2=Math.max(b2,r.bottom);
+        });
+        if (l2 < -1 || r2 > W + 1 || b2 > w.innerHeight + 1)
+          bad.push(n+' cards: left '+Math.round(l2)+' right '+Math.round(r2));
+      });
+      ok('every hand size fits, not just the one dealt', bad.length === 0,
+         bad.length ? bad.join('; ') : sizes.join(', ')+' cards checked');
+
       // Every control reachable.
       var btns = [].slice.call(d.querySelectorAll('#actions .action-btn, .round-btn'));
       var off = btns.filter(function(b){

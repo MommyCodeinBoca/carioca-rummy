@@ -400,7 +400,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -1803,10 +1803,25 @@ function renderFan(host, cards, faceUp, onClick) {
                         .getPropertyValue('--card-w')) || 76;
   const ch = cw * 1.42;
   const mid = (n - 1) / 2;
-  const room = (host.clientWidth || window.innerWidth) - 24;
-  const lap = n > 1 ? Math.min(cw * 0.82, (room - cw) / (n - 1)) : 0;
   const step = Math.min(4.5, 34 / Math.max(1, n));     // degrees between cards
   const arc  = Math.min(22, 4 + n * 1.4);              // how high the middle rides
+  // A ROTATED CARD IS WIDER THAN A CARD.
+  //
+  // The outermost pair lean by step*mid, and a leaning rectangle needs
+  // ch·sin θ + cw·cos θ of width instead of cw. The room was worked out from
+  // cw alone, so from thirteen cards up — a full hand on the last contract —
+  // the fan ran off both edges of a phone by the difference:
+  //
+  //   7 cards    left  72   right 321
+  //   13 cards   left  -2   right 395      (viewport 393)
+  //
+  // Which also means a card can sit where it cannot be seen, and a SELECTED
+  // card sitting there is a card counted into a contract and invisible.
+  const tiltMax = (step * mid) * Math.PI / 180;
+  const lean = Math.ceil((ch * Math.abs(Math.sin(tiltMax))
+                        + cw * Math.cos(tiltMax) - cw) / 2);
+  const room = (host.clientWidth || window.innerWidth) - 24 - lean * 2;
+  const lap = n > 1 ? Math.min(cw * 0.82, Math.max(6, (room - cw) / (n - 1))) : 0;
   // The height goes on the FAN, not the row around it. The cards are absolute
   // and sit on the fan's own baseline, so a fan of zero height hung them above
   // it — over the action buttons — with the reserved space left empty below.
@@ -1815,7 +1830,7 @@ function renderFan(host, cards, faceUp, onClick) {
   // bottom centre swings the far corner down by half a width times the sine of
   // the angle. The outermost card was 11px past the bottom of the screen and
   // its corners were being shaved off.
-  const tilt = (step * mid) * Math.PI / 180;
+  const tilt = tiltMax;
   const drop = Math.ceil(Math.abs(Math.sin(tilt)) * cw / 2) + 2;
   const rise = Math.ceil(Math.abs(Math.sin(tilt)) * ch);
   host.style.height = Math.round(ch + arc + rise + drop + 6) + 'px';
