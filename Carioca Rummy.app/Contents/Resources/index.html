@@ -1,0 +1,2721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carioca Rummy</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   THE TABLE
+   Built to the look she asked for — 'carioca card sample.PNG': a bright
+   green damask felt, hands fanned in an arc, red-and-gold card backs with a
+   medallion, and gold-rimmed round buttons at the corners.
+   Everything is drawn in CSS and inline SVG. No external file is fetched, so
+   the whole game stays one file that works with no signal.
+   ══════════════════════════════════════════════════════════════════════ */
+:root {
+  --card-w: 76px;
+  --card-h: 108px;
+  --felt: #1a8f1a;
+  --felt-dark: #0d6b14;
+  --gold: #f0c430;
+  --gold-dim: #b8902a;
+  --back-red: #a81d20;
+  --back-red-dk: #7d1316;
+  --ink: #16281a;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  font-family: 'Trebuchet MS', 'Gill Sans', system-ui, sans-serif;
+  color: #fff;
+}
+/* The felt. A deep green base, a radial lift in the middle so the centre of
+   the table reads as lit, and a scrollwork motif tiled over it. */
+body {
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><g fill='none' stroke='%2345c445' stroke-width='2.5' stroke-linecap='round' opacity='0.55'><path d='M20 80c0-30 20-50 45-50M20 80c0 30 20 50 45 50'/><path d='M30 55c12 4 20 12 24 24M30 105c12-4 20-12 24-24'/><path d='M100 20c25 8 40 30 40 60s-15 52-40 60'/><path d='M118 45c-10 8-14 20-12 34M118 115c-10-8-14-20-12-34'/><circle cx='80' cy='80' r='6'/><path d='M80 62c8 6 8 12 0 18-8-6-8-12 0-18M80 98c8-6 8-12 0-18-8 6-8 12 0 18'/></g></svg>"),
+    radial-gradient(ellipse at 50% 45%, #2bb02b 0%, var(--felt) 45%, var(--felt-dark) 100%);
+  background-size: 160px 160px, cover;
+}
+
+/* ── CARDS ──────────────────────────────────────────────────────────── */
+.card {
+  position: relative;
+  width: var(--card-w); height: var(--card-h);
+  border-radius: calc(var(--card-w) * 0.09);
+  background: #fdfdfb;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.18);
+  user-select: none; flex: 0 0 auto;
+}
+.card.red  { color: #c0191c; }
+.card.black{ color: #15151c; }
+
+/* The corner index, big and bold as in the sample: rank over suit, top-left,
+   and the same upside down bottom-right. */
+.card .ix {
+  position: absolute; display: flex; flex-direction: column;
+  align-items: center; line-height: 0.92;
+  font-weight: 800; font-size: calc(var(--card-w) * 0.30);
+}
+.card .ix.tl { top: 3%; left: 5%; }
+.card .ix.br { bottom: 3%; right: 5%; transform: rotate(180deg); }
+.card .ix .s { font-size: calc(var(--card-w) * 0.26); }
+
+/* The body: a pip grid for 2–10, a large glyph for A, and a panel for courts. */
+.card .pips {
+  position: absolute; inset: 14% 22%;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  justify-items: center; align-items: center;
+  font-size: calc(var(--card-w) * 0.24); line-height: 1;
+}
+.card .pips.one { grid-template-columns: 1fr; }
+.card .pips span.mid { grid-column: 1 / -1; }
+.card .pips span.flip { transform: rotate(180deg); }
+.card .big {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  font-size: calc(var(--card-w) * 0.52);
+}
+.card .court {
+  position: absolute; inset: 15% 17%;
+  border: 2px solid currentColor; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: calc(var(--card-w) * 0.40); font-weight: 800;
+  background: linear-gradient(160deg, rgba(240,196,48,0.22), rgba(192,25,28,0.12));
+}
+.card.joker .court {
+  font-size: calc(var(--card-w) * 0.22); letter-spacing: 1px;
+  background: linear-gradient(160deg, rgba(240,196,48,0.35), rgba(120,30,160,0.18));
+}
+
+/* The back: red with a gold lattice and a medallion, as in the sample. */
+.card.back {
+  background:
+    repeating-linear-gradient(45deg,  rgba(240,196,48,0.55) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(-45deg, rgba(240,196,48,0.55) 0 2px, transparent 2px 7px),
+    linear-gradient(160deg, var(--back-red) 0%, var(--back-red-dk) 100%);
+  border: calc(var(--card-w) * 0.055) solid var(--gold);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(255,255,255,0.12);
+}
+.card.back::after {
+  content: 'C';
+  position: absolute; inset: 0; margin: auto;
+  width: 44%; height: 31%;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #d8332f, var(--back-red-dk));
+  border: 2px solid var(--gold);
+  color: #fff6d8; font-weight: 800; font-size: calc(var(--card-w) * 0.30);
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+/* ── THE FAN ────────────────────────────────────────────────────────────
+   Her sample arcs both hands. Each card is rotated about a pivot far below
+   the fan, which is what gives the even sweep — rotating in place would
+   splay them without curving the row. */
+/* The arc. Each card is placed by hand and rotated about its own base, with
+   a parabolic lift so the middle of the fan rides highest — the arch in her
+   sample. Rotating about a pivot far below the row looked right on paper and
+   threw the outer cards off the bottom of the screen, because the offset and
+   the rotation were both moving them. */
+.fan { position: relative; }
+.fan .card { position: absolute; bottom: 0; transform-origin: 50% 100%; }
+
+/* ── SEATS AND THE CENTRE ───────────────────────────────────────────── */
+#table { position: relative; width: 100%; height: 100%; }
+.seat-label {
+  font-weight: 700; letter-spacing: 0.04em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 10px; border-radius: 999px;
+  background: rgba(0,0,0,0.34); border: 1px solid rgba(240,196,48,0.5);
+  font-size: 0.78rem; font-weight: 700;
+}
+.pill.down { background: rgba(240,196,48,0.9); color: #3a2a00; border-color: #fff3c4; }
+
+/* Gold-rimmed round buttons, top corners, as in the sample. */
+.round-btn {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 34% 28%, #39b63b, #11711a);
+  border: 3px solid var(--gold); color: #fff;
+  font-size: 1.15rem; font-weight: 800; cursor: pointer;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+}
+.round-btn:hover { filter: brightness(1.15); }
+
+/* The score chip on the right of the sample — one per seat here. */
+/* The running score, and only that.
+     "you need to remove the count for the cards the player have in their hand.
+      that is not needed. Leave the running score."
+   It was also an information leak: how many points an opponent is holding is
+   exactly what their hand is worth, and nobody at a real table can see it. */
+.chip {
+  min-width: 40px; height: 32px; padding: 0 9px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(255,255,255,0.75);
+  background: #96e0b4; color: #0d4f2a;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+  font-weight: 800; font-size: 0.86rem;
+}
+.chip.neg { background: #f3a0a6; color: #7d1316; }
+
+.action-btn {
+  padding: 9px 18px; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(#2fa93a, #16761f);
+  border: 2px solid var(--gold); color: #fff;
+  font-weight: 800; font-size: 0.92rem;
+  box-shadow: 0 3px 7px rgba(0,0,0,0.42);
+}
+.action-btn:disabled { opacity: 0.4; cursor: default; }
+.action-btn.warn { background: linear-gradient(#d8a21e, #a1740c); }
+
+.card.sel { outline: 3px solid var(--gold); outline-offset: 1px; }
+/* Where a dragged card can land. Drag became "rearrange my hand" in the last
+   version and quietly took the older, more obvious gesture with it:
+     "i just placed my contract and i had another card of the same value that i
+      wanted to meld on it and it won't let do that"
+   Both gestures work now, so the targets have to say which is which. */
+.droppable { outline: 3px dashed var(--gold); outline-offset: 3px; }
+.droppable.over { outline-style: solid; background: rgba(240,196,48,0.22); }
+
+/* A pile that cannot be taken should not look like one that can.
+     "if the discard pile is dead for me because somebody stole the discard
+      then it should be grayed out or something" */
+.dead-pile { filter: grayscale(1) brightness(0.6); cursor: default; }
+.dead-pile .card { box-shadow: none; }
+
+/* A joker on the table is standing in for a real card, and anyone holding that
+   card can buy it back. One you can buy right now says so. */
+.card.jk { box-shadow: 0 0 0 2px rgba(160,80,220,0.8), 0 2px 5px rgba(0,0,0,0.45); }
+.card.jk.swappable {
+  cursor: pointer;
+  animation: swapGlow 1.2s ease-in-out infinite;
+}
+/* I hold the card that buys it, but the turn has not started. Marked, not
+   offered — so a joker worth having never looks the same as one that is not. */
+.card.jk.waiting { box-shadow: 0 0 0 2px rgba(240,196,48,0.55); opacity: 0.92; }
+.card.jk.waiting::after {
+  content: '!'; position: absolute; top: -7px; right: -7px;
+  width: 17px; height: 17px; border-radius: 50%;
+  background: var(--gold); color: #3a2a00;
+  font-size: 12px; font-weight: 900; line-height: 17px; text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+@keyframes swapGlow {
+  0%,100% { box-shadow: 0 0 0 2px var(--gold), 0 0 4px var(--gold); }
+  50%     { box-shadow: 0 0 0 3px var(--gold), 0 0 16px var(--gold); }
+}
+.card.pick { cursor: pointer; }
+.meld {
+  display: inline-flex; padding: 3px;
+  background: rgba(0,0,0,0.2); border-radius: 7px;
+  border: 1px solid rgba(240,196,48,0.35);
+}
+.meld .card { margin-left: calc(var(--card-w) * -0.58); }
+.meld .card:first-child { margin-left: 0; }
+
+/* Smaller cards are a smaller --card-w, never a transform. `scale()` leaves
+   the layout box at full size, which is what filled the table with big empty
+   rectangles behind the melds. */
+.mini  { --card-w: 40px; --card-h: 57px; }
+.micro { --card-w: 30px; --card-h: 43px; }
+
+/* ── THE LAYOUT ───────────────────────────────────────────────────────
+   A column, not absolute positions. North's melds used to flow down over
+   the stock and the hand ran off the bottom of the screen; rows cannot
+   collide. */
+#table { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+#row-north { flex: 0 0 auto; padding: 54px 10px 4px; flex-direction: column; gap: 5px; }
+#row-mid   { flex: 1 1 auto; min-height: 0; align-items: center; }
+#row-mid > .side { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+                   align-items: center; gap: 5px; }
+#centre    { flex: 0 0 auto; display: flex; gap: 40px; align-items: center; }
+#row-melds { flex: 0 0 auto; padding: 4px 10px; flex-wrap: wrap; min-height: 10px; }
+#row-acts  { flex: 0 0 auto; padding: 6px 10px 8px; }
+#row-hand  { flex: 0 0 auto; position: relative; }
+.meld-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+
+/* ── A PHONE ────────────────────────────────────────────────────────────
+   Measured at 393x852, where two things broke: the ⇅ suit button ran off the
+   right edge of a single unwrapping row of controls, and the top line — the
+   contract, the version and the deal number — grew to two lines and drew over
+   North's seat, because the gap above North was a fixed 54px chosen on a
+   desktop. Both only show below about 600px, which is why a desktop told me
+   nothing. */
+#row-acts, #actions, #me-bar { flex-wrap: wrap; }
+@media (max-width: 620px) {
+  #contract-line { font-size: 0.86rem; line-height: 1.25; max-width: 94vw; }
+  #row-north { padding-top: 84px; }
+  #row-acts  { gap: 6px; padding: 4px 6px 6px; }
+  #actions .action-btn, #me-bar .pill, #me-bar .chip { font-size: 0.8rem; }
+  #actions .action-btn { padding: 7px 11px; }
+  .seat-label { font-size: 0.9rem; }
+}
+.backs { display: flex; justify-content: center; }
+.backs .card { margin-left: calc(var(--card-w) * -0.66); }
+.backs .card:first-child { margin-left: 0; }
+
+#banner {
+  position: absolute; left: 50%; top: 16%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.78); border: 2px solid var(--gold);
+  border-radius: 12px; padding: 12px 22px; font-weight: 700;
+  max-width: 80%; text-align: center; display: none; z-index: 40;
+}
+/* Above EVERYTHING, including a card mid-drag. A dragged card is lifted to
+   z-index 200 so it rides over the table, and when the drop opens a question
+   the card was still sitting there at 200 over a panel at 60 — eating the
+   clicks meant for its buttons:
+     "it is asking where i want but won't let me click anything" */
+#overlay {
+  position: absolute; inset: 0; z-index: 300;
+  background: rgba(0,0,0,0.62);
+  display: flex; align-items: center; justify-content: center;
+}
+#overlay .panel {
+  background: linear-gradient(165deg, #15711c, #0b4a12);
+  border: 3px solid var(--gold); border-radius: 18px;
+  padding: 26px 34px; text-align: center; max-width: 92%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+  /* A run with three Jokers in it offers three readings, each a row of its
+     own. Stacked under the explanation that overflowed the panel and the
+     buttons went off the top of the screen, where nothing can click them. */
+  max-height: 92%; overflow-y: auto;
+}
+#overlay h2 { margin: 0 0 6px; font-size: 1.5rem; }
+/* Who took what, shown on the seat that did it rather than only in a banner.
+     "i think i should be able to see who held it so maybe if you mark somehow
+      who is holding" */
+.took {
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4);
+  color: #fff;
+}
+.took.held {
+  background: var(--gold); color: #3a2a00; border-color: #fff3c4;
+  animation: heldPulse 1s ease-in-out 3;
+}
+@keyframes heldPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(240,196,48,0.9); }
+  50%     { box-shadow: 0 0 0 9px rgba(240,196,48,0); }
+}
+.seat-active { outline: 2px solid var(--gold); outline-offset: 7px; border-radius: 12px; }
+.flyer { position: fixed; z-index: 70; pointer-events: none;
+         transition: transform .55s cubic-bezier(.3,.7,.3,1), opacity .55s; }
+.src-glow { animation: srcGlow .55s ease-out; }
+/* The stock being rebuilt from the discards. Three cards tumble back and the
+   pile squares up, so the pile changing size is something that happens rather
+   than something that already happened. */
+.shuffling { animation: shuffleNudge .5s ease-in-out 3; }
+@keyframes shuffleNudge {
+  0%,100% { transform: none; }
+  30%     { transform: translate(-7px, -3px) rotate(-6deg); }
+  70%     { transform: translate(6px, -2px) rotate(5deg); }
+}
+.shuffle-fly { position: fixed; z-index: 68; pointer-events: none;
+               transition: transform .5s ease-in, opacity .5s; }
+@keyframes srcGlow {
+  0%   { filter: brightness(1.9) drop-shadow(0 0 12px var(--gold)); }
+  100% { filter: none; }
+}
+
+/* The hold prompt. It used to be a small button that appeared for three and a
+   half seconds and vanished, which is not a window anybody can use — and her
+   own rule is the opposite of a flash:
+     "they should say 'hold' and they have a few minutes to think"
+   So it waits, it says what the card is, and it sits where the eye already is:
+   under the discard pile it is talking about. */
+#hold-wrap {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, 14px);
+  z-index: 250; display: none; text-align: center;
+  background: rgba(0,0,0,0.82); border: 3px solid var(--gold);
+  border-radius: 14px; padding: 14px 20px 12px;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.6);
+  animation: holdIn .22s ease-out;
+}
+@keyframes holdIn { from { opacity: 0; transform: translate(-50%, 26px); } }
+#hold-say { font-weight: 800; font-size: 1.02rem; margin-bottom: 10px; }
+#hold-note { font-size: .74rem; opacity: .72; margin-top: 7px; }
+#hold-btn {
+  padding: 13px 26px; font-size: 1.05rem;
+  background: linear-gradient(#e8b61d, #b07d07); color: #2b1d00;
+}
+#hold-bar { height: 5px; margin-top: 9px; background: rgba(0,0,0,0.45);
+            border-radius: 3px; overflow: hidden; }
+#hold-bar i { display: block; height: 100%; background: var(--gold); width: 100%; }
+/* The pile is the thing being offered, so it is clickable while the prompt is
+   up and says so. */
+.holdable { cursor: pointer; animation: holdGlow 1.1s ease-in-out infinite; }
+@keyframes holdGlow {
+  0%,100% { filter: drop-shadow(0 0 2px var(--gold)); }
+  50%     { filter: drop-shadow(0 0 13px var(--gold)); }
+}
+</style>
+</head>
+<body>
+<div id="table">
+  <button class="round-btn" id="btn-menu" style="position:absolute;top:12px;left:12px;">☰</button>
+  <button class="round-btn" id="btn-help" style="position:absolute;top:12px;left:66px;">?</button>
+  <button class="round-btn" id="btn-settings" style="position:absolute;top:12px;right:12px;">⚙</button>
+
+  <div id="contract-line" style="position:absolute;top:14px;left:50%;transform:translateX(-50%);text-align:center;z-index:5;"></div>
+
+  <div class="row" id="row-north"><div id="seat-2" class="mini"></div></div>
+  <div class="row" id="row-mid">
+    <div class="side mini" id="seat-1"></div>
+    <div id="centre"></div>
+    <div class="side mini" id="seat-3"></div>
+  </div>
+  <div class="row" id="row-melds"><div id="my-melds" class="meld-row"></div></div>
+  <div class="row" id="row-acts">
+    <div id="me-bar" class="row" style="gap:7px;"></div>
+    <div id="actions" class="row"></div>
+  </div>
+  <div id="row-hand"><div id="my-hand" class="fan"></div></div>
+
+  <div id="hold-wrap">
+    <div id="hold-say">West threw the 7♦</div>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button class="action-btn" id="hold-btn">✋ HOLD it</button>
+      <button class="action-btn" id="pass-btn">Pass</button>
+    </div>
+    <div id="hold-bar"><i></i></div>
+    <div id="hold-note">you will draw a penalty card too</div>
+  </div>
+  <div id="banner"></div>
+  <div id="overlay"><div class="panel">
+    <h2>Carioca Rummy</h2>
+    <p style="opacity:.85;margin:4px 0 16px;">Seven contracts. Fewest points wins.</p>
+    <button class="action-btn" id="start-btn">Deal</button>
+  </div></div>
+</div>
+<script>
+
+// ════════════════════════════════════════════════════════════════════════
+// CARIOCA RUMMY — rules engine
+//
+// From the player's own document, 'Carioca Rummy Game.docx'. Her corrections
+// to it, in her words, are quoted at the rule they settle.
+// ════════════════════════════════════════════════════════════════════════
+
+const APP_VERSION = '1.2';
+
+// ── THE DECK ────────────────────────────────────────────────────────────
+//   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
+//    If more players, then you can add another deck."
+//
+// 104 + 4 = 108. Five players at the longest contract take 65, so one pair of
+// decks is enough for every seat count the rules name.
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RED_SUITS = ['♥', '♦'];
+const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+
+function buildDeck(decks = 2) {
+  const cards = [];
+  let n = 0;
+  for (let d = 0; d < decks; d++) {
+    SUITS.forEach(suit => RANKS.forEach(rank => {
+      cards.push({ rank, suit, isJoker: false, id: 'c' + (n++) });
+    }));
+    cards.push({ rank: 'JOKER', suit: '★', isJoker: true, id: 'c' + (n++) });
+    cards.push({ rank: 'JOKER', suit: '★', isJoker: true, id: 'c' + (n++) });
+  }
+  return cards;
+}
+
+// ── CARD VALUES ─────────────────────────────────────────────────────────
+//   "2-10: have their own value / J,Q,K: 10 points / Ace: 15 points /
+//    Joker: 25 points"
+//
+// These are PENALTY points: every card left in a hand counts against its
+// owner, so a joker is the worst card to be caught holding as well as the most
+// useful one to hold.
+function cardPoints(c) {
+  if (c.isJoker) return 25;
+  if (c.rank === 'A') return 15;
+  if (c.rank === 'J' || c.rank === 'Q' || c.rank === 'K') return 10;
+  return parseInt(c.rank, 10);
+}
+
+function handPoints(hand) {
+  return hand.reduce((s, c) => s + cardPoints(c), 0);
+}
+
+// ── THE CONTRACTS ───────────────────────────────────────────────────────
+// Seven rounds, in this order. `deal` is the hand size; `trios` and `runs` are
+// what must go down to complete the contract.
+//
+// THE FIRST ROW WAS WRONG IN THE DOCUMENT, and the arithmetic is what caught
+// it. Every row is `deal = trios*3 + runs*4 + 1`, the spare card being the one
+// discarded to end the turn:
+//
+//    8 = 3 + 4 + 1      11 = 6 + 4 + 1
+//    9 = 4 + 4 + 1      12 = 8 + 3 + 1
+//   10 = 9 + 0 + 1      13 = 12 + 0 + 1
+//
+// Only "7 cards: 3 trios" broke it — 3 trios is nine cards and would need ten
+// dealt — and it broke by exactly one trio. It would also have made the first
+// contract identical to the fourth.
+//
+//   "you are right, the first contract is 2 trios, let me correct the
+//    document."
+const CONTRACTS = [
+  { deal: 7,  trios: 2, runs: 0, name: '2 trios' },
+  { deal: 8,  trios: 1, runs: 1, name: '1 trio + 1 run' },
+  { deal: 9,  trios: 0, runs: 2, name: '2 runs' },
+  { deal: 10, trios: 3, runs: 0, name: '3 trios' },
+  { deal: 11, trios: 2, runs: 1, name: '2 trios + 1 run' },
+  { deal: 12, trios: 1, runs: 2, name: '1 trio + 2 runs' },
+  { deal: 13, trios: 0, runs: 3, name: '3 runs' },
+];
+
+const TRIO_MIN = 3;
+const RUN_MIN  = 4;
+
+// Every contract's deal is its own cards plus one to discard. Asked rather than
+// restated, so a contract cannot be added with a deal that does not fit.
+function contractCards(c) { return c.trios * TRIO_MIN + c.runs * RUN_MIN; }
+function contractDealCheck(c) { return contractCards(c) + 1 === c.deal; }
+
+// ── TRIOS ───────────────────────────────────────────────────────────────
+// Three or more of a rank. Suits do not matter; two decks mean duplicates are
+// ordinary and not a problem.
+//
+//   "Players are allowed to place more cards on their contract trios or runs."
+//
+// So three is a minimum, not a size. A trio needs at least one natural — seven
+// jokers is not a trio of anything, it has no rank to be.
+function isTrio(cards) {
+  if (!Array.isArray(cards) || cards.length < TRIO_MIN) return false;
+  const nat = cards.filter(c => !c.isJoker);
+  if (nat.length === 0) return false;
+  const rank = nat[0].rank;
+  return nat.every(c => c.rank === rank);
+}
+
+function trioRank(cards) {
+  const nat = (cards || []).filter(c => !c.isJoker);
+  return nat.length ? nat[0].rank : null;
+}
+
+// ── RUNS ────────────────────────────────────────────────────────────────
+// Four or more consecutive cards of ONE suit — and the ranks are a CIRCLE:
+//
+//   "a run can start with any card, e.g. Q-K-A-2 is a run"
+//
+// So the Ace is not a boundary. K wraps to A, A to 2, and a run may cross that
+// seam. It cannot cross it twice: thirteen ranks exist, so a run of more than
+// thirteen cards would have to repeat one, and a repeat is not consecutive.
+//
+// Jokers stand in for a missing rank:
+//
+//   "Jokers are wild cards, and can be used anywhere to complete the contract."
+//
+// The order a run is HELD in does not matter — the player drops cards in and
+// the game works out whether they form one. So this asks whether the cards can
+// be ARRANGED into a run, not whether they already are.
+function isRun(cards) {
+  if (!Array.isArray(cards) || cards.length < RUN_MIN) return false;
+  if (cards.length > RANKS.length) return false;      // cannot lap the circle
+  const nat = cards.filter(c => !c.isJoker);
+  const jokers = cards.length - nat.length;
+  if (nat.length === 0) return false;                 // no suit, no run
+  const suit = nat[0].suit;
+  if (!nat.every(c => c.suit === suit)) return false;
+
+  const idx = nat.map(c => RANKS.indexOf(c.rank));
+  if (idx.some(i => i < 0)) return false;
+  if (new Set(idx).size !== idx.length) return false; // a repeat is not a run
+
+  // Try every rank as the start. The run occupies `cards.length` consecutive
+  // slots from there, and each natural must land in one of them; whatever is
+  // left over is filled by jokers, and there must be exactly enough.
+  for (let start = 0; start < RANKS.length; start++) {
+    const slots = new Set();
+    for (let k = 0; k < cards.length; k++) slots.add((start + k) % RANKS.length);
+    if (!idx.every(i => slots.has(i))) continue;
+    if (slots.size - nat.length === jokers) return true;
+  }
+  return false;
+}
+
+// Lay a run down and every joker in it gets a NAME.
+//
+//   "jokers at the end, are meant for the end cap. in your example it would be
+//    4-5-6-(7), they have to declare when they lay it down"
+//
+// A joker in a GAP names itself — 4♥ 5♥ J 7♥ can only be the 6♥. A joker on an
+// END could cap either side, so the player says which, and from then on it IS
+// that card: exchangeable, and fixed if the run is extended.
+//
+// `declared` is a list of ranks, one per joker in the order they appear in
+// `cards`. Returns { order, jokers } with the run in sequence and each joker
+// named, or { need: 'declare', choices } when the player has to say, or null
+// when the cards are not a run at all.
+// A declaration may be written either way — "7" or "7♥" — because `choices`
+// hands back the second and every caller passed it straight back in.
+//
+// RANKS.indexOf("7♥") is -1, so the declaration matched no gap, resolveRun()
+// answered 'declare' again and layContract() refused. The effect was that NO
+// run with a joker on its END could ever be laid, by anybody: aiLayContract()
+// returned false and the human got "say which card the joker stands for" over
+// and over on a contract that was perfectly good.
+//
+// Parsed rather than restated, so the two cannot drift apart again.
+function declaredRankIndex(decl) {
+  if (decl === undefined || decl === null) return -1;
+  const d = String(decl);
+  const i = RANKS.indexOf(d);
+  if (i >= 0) return i;
+  // Longest first, so "10♥" is not read as a "1".
+  let best = -1, bestLen = 0;
+  RANKS.forEach((r, k) => {
+    if (d.startsWith(r) && r.length > bestLen) { best = k; bestLen = r.length; }
+  });
+  return best;
+}
+
+function resolveRun(cards, declared) {
+  if (!isRun(cards)) return null;
+  const nat = cards.filter(c => !c.isJoker);
+  const jokers = cards.filter(c => c.isJoker);
+  const suit = nat[0].suit;
+  const idx = nat.map(c => RANKS.indexOf(c.rank));
+
+  const fits = [];
+  for (let start = 0; start < RANKS.length; start++) {
+    const slots = [];
+    for (let k = 0; k < cards.length; k++) slots.push((start + k) % RANKS.length);
+    if (!idx.every(i => slots.includes(i))) continue;
+    const gaps = slots.filter(i => !idx.includes(i));
+    if (gaps.length !== jokers.length) continue;
+    fits.push({ slots, gaps });
+  }
+  if (!fits.length) return null;
+
+  // Several readings that put the jokers in the SAME place are one reading.
+  // A run of thirteen can start anywhere and always leaves the same single
+  // gap; asking which card the joker is would be asking a question with one
+  // answer. Deduped on the gaps, which is the only part anybody cares about.
+  const bySig = new Map();
+  fits.forEach(f => {
+    const sig = [...f.gaps].sort((a, b) => a - b).join(',');
+    if (!bySig.has(sig)) bySig.set(sig, f);
+  });
+  const distinct = [...bySig.values()];
+
+  let chosen = distinct[0];
+  if (distinct.length > 1) {
+    const want = (declared || []).map(declaredRankIndex).sort((a, b) => a - b);
+    const match = distinct.filter(f =>
+      f.gaps.length === want.length &&
+      [...f.gaps].sort((a, b) => a - b).every((g, i) => g === want[i]));
+    if (match.length !== 1) {
+      return { need: 'declare',
+               choices: distinct.map(f => f.gaps.map(g => RANKS[g] + suit)) };
+    }
+    chosen = match[0];
+  }
+  if (!jokers.length) {
+    return { order: chosen.slots.map(i => nat.find(c => RANKS.indexOf(c.rank) === i)),
+             jokers: [] };
+  }
+  const named = chosen.gaps.map((g, n) => ({ card: jokers[n], rank: RANKS[g], suit }));
+  const order = chosen.slots.map(i => {
+    const n = nat.find(c => RANKS.indexOf(c.rank) === i);
+    if (n) return n;
+    return named.find(j => RANKS.indexOf(j.rank) === i).card;
+  });
+  return { order, jokers: named };
+}
+
+// Which rank a joker is standing in for, at each position of a laid run. Needed
+// by the exchange:
+//
+//   "if one of the other players has the card it was meant to replace, they
+//    can, on their turn, exchange the joker for the card and use the joker to
+//    complete their contract."
+//
+// Returns [{ card, rank, suit }] for each joker, or null when the run is
+// ambiguous — which it can be at the ends, where a joker could extend either
+// way. An ambiguous joker is not exchangeable, because nobody can say what card
+// it was meant to be.
+function runJokerTargets(cards) {
+  if (!isRun(cards)) return null;
+  const nat = cards.filter(c => !c.isJoker);
+  const jokers = cards.filter(c => c.isJoker);
+  if (!jokers.length) return [];
+  // A laid run has already been declared, so the answer is written on the card
+  // and there is nothing left to work out.
+  if (jokers.every(j => j.standsFor)) {
+    return jokers.map(j => ({ card: j, rank: j.standsFor.rank, suit: j.standsFor.suit }));
+  }
+  const suit = nat[0].suit;
+  const idx = nat.map(c => RANKS.indexOf(c.rank));
+
+  const fits = [];
+  for (let start = 0; start < RANKS.length; start++) {
+    const slots = [];
+    for (let k = 0; k < cards.length; k++) slots.push((start + k) % RANKS.length);
+    if (!idx.every(i => slots.includes(i))) continue;
+    const gaps = slots.filter(i => !idx.includes(i));
+    if (gaps.length !== jokers.length) continue;
+    fits.push(gaps);
+  }
+  if (fits.length === 0) return null;
+  // More than one arrangement and the gaps differ: nobody can say which card
+  // the joker stands for, so it is not exchangeable.
+  const first = fits[0].join(',');
+  if (!fits.every(f => f.join(',') === first)) return null;
+  return fits[0].map((g, n) => ({ card: jokers[n], rank: RANKS[g], suit }));
+}
+
+// ── SCORING ─────────────────────────────────────────────────────────────
+//   "If a player has melded their contract down, and discarded all their cards
+//    on the same turn, the player makes -20 points. If a player has melded
+//    their contract, but closed out on a later turn, that player makes -10
+//    points. All other players, count their cards and all those points are
+//    positive for each player."
+//
+//   "The player with the least number of points wins."
+//
+// So the bonus is for the player who GOES OUT, and it is bigger for doing the
+// whole thing in one turn — the risky line the notes describe. Everyone else
+// scores the cards left in their hand, against them.
+function roundScore(player) {
+  if (!player.wentOut) return handPoints(player.hand);
+  return player.meldedThisTurn ? -20 : -10;
+}
+
+// ── TURN ORDER AND THE STEAL ────────────────────────────────────────────
+// How far `seat` sits from `from`, counting left-hand-ward around the table.
+// The seat immediately to the left of `from` is 1.
+function seatDistance(from, seat, seats) {
+  return ((seat - from) % seats + seats) % seats;
+}
+
+// Who wins a contested discard.
+//
+//   "If two or more players want it, the player closest to the player who
+//    discarded the card wins. Any player aside from the one next to the player
+//    who discarded the card, takes the penalty card."
+//
+// Note what falls out of this: the next player is distance 1, so they are
+// ALWAYS the closest, and a contest they enter is a contest they win. Stealing
+// therefore only succeeds on a card the next player does not want — which is
+// why it is resolved by seat and never by who clicked first. An AI decides in
+// microseconds and a person does not.
+//
+// `claims` is a list of seat numbers. Returns { seat, penalty } or null.
+function resolveClaim(discarder, claims, seats) {
+  if (!claims || !claims.length) return null;
+  let best = null, bestD = Infinity;
+  claims.forEach(seat => {
+    const d = seatDistance(discarder, seat, seats);
+    if (d > 0 && d < bestD) { bestD = d; best = seat; }
+  });
+  if (best === null) return null;
+  return { seat: best, penalty: bestD > 1 };
+}
+
+// Play goes one seat to the left, and a steal does NOT change that.
+//
+//   "the last player is not the stealer, play does not resume to stealer's
+//    left, play carry on in normal order"
+//
+// Which makes the document's own line consistent: "The person next to the last
+// player is up next" means next to the last player to take a TURN — the
+// discarder — not next to whoever reached across the table. So a steal costs
+// the stealer two cards out of turn and costs the table nothing else.
+function nextSeat(seat, seats) { return (seat + 1) % seats; }
+
+// What a steal does to the pile:
+//
+//   "The discarded pile is dead and cannot be stolen after that card is stolen.
+//    The only option is to open a new card from the stock pile."
+//
+// For ONE turn. The player whose turn it is must draw from the stock, and their
+// own discard puts a live card back on top for the seat after them. A steal by
+// the next player — distance 1, no penalty — is just that player taking the
+// discard on their own turn, so it kills nothing.
+function pileIsDeadAfter(claim) {
+  return !!(claim && claim.penalty);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// THE ROUND
+// ════════════════════════════════════════════════════════════════════════
+const G = {
+  seats: 4,
+  contractIdx: 0,
+  dealer: 0,
+  turn: 0,
+  players: [],          // { hand, melds, down, wentOut, meldedThisTurn, score }
+  stock: [],
+  discard: [],
+  pileDead: false,      // set by a steal, for one turn only
+  phase: 'draw',        // 'draw' → 'meld' → (discard ends the turn)
+  drewThisTurn: false,
+  roundOver: false,
+};
+
+// Deterministic shuffle, so a round can be replayed from its seed — the single
+// most useful thing there is when somebody reports a hand that went wrong.
+function shuffle(cards, seed) {
+  let x = (seed >>> 0) || 1;
+  const a = [...cards];
+  for (let i = a.length - 1; i > 0; i--) {
+    x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0;
+    const j = x % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+//   "Select the dealer. Deal the number of cards required for the first
+//    contract … Place the remaining card in a stack face down in the center of
+//    the table. Place the top card to its side face up. The next player to the
+//    left of the dealer has the option of taking the open card…"
+function startRound(contractIdx, dealer, seed, seats) {
+  G.seats = seats || G.seats;
+  G.contractIdx = contractIdx;
+  G.dealer = dealer;
+  // Kept so a hand can be played again exactly as it fell. On the Canasta game
+  // this has been worth more than any test: a tester replays the deal on the
+  // new build and says whether it is fixed, which no simulation can do.
+  G.seed = (seed === undefined ? 1 : seed);
+  const con = CONTRACTS[contractIdx];
+  const deck = shuffle(buildDeck(2), seed === undefined ? 1 : seed);
+  G.players = [];
+  for (let i = 0; i < G.seats; i++) {
+    G.players.push({ hand: [], melds: [], down: false, wentOut: false,
+                     meldedThisTurn: false,
+                     score: (G.players[i] && G.players[i].score) || 0 });
+  }
+  let n = 0;
+  for (let c = 0; c < con.deal; c++) {
+    for (let i = 0; i < G.seats; i++) {
+      G.players[(dealer + 1 + i) % G.seats].hand.push(deck[n++]);
+    }
+  }
+  G.discard = [deck[n++]];
+  G.stock = deck.slice(n);
+  G.turn = (dealer + 1) % G.seats;
+  G.pileDead = false;
+  G.phase = 'draw';
+  G.drewThisTurn = false;
+  G.roundOver = false;
+  return G;
+}
+
+function contract() { return CONTRACTS[G.contractIdx]; }
+function topOfDiscard() { return G.discard.length ? G.discard[G.discard.length - 1] : null; }
+
+// The stock running dry. The rules do not say, and a round that cannot
+// continue is not an option, so the discards are turned over and reused —
+// keeping the top card where it is, since it is still live.
+function refillStockIfEmpty() {
+  if (G.stock.length) return false;
+  if (G.discard.length <= 1) return false;
+  const top = G.discard.pop();
+  G.stock = shuffle(G.discard, G.discard.length + 7);
+  G.discard = [top];
+  return true;
+}
+
+function drawFromStock(seat) {
+  if (G.turn !== seat || G.phase !== 'draw') return null;
+  refillStockIfEmpty();
+  if (!G.stock.length) return null;
+  const c = G.stock.shift();
+  G.players[seat].hand.push(c);
+  G.phase = 'meld';
+  G.drewThisTurn = true;
+  return c;
+}
+
+// Taking the face-up card on your own turn. Not a steal and never a penalty —
+// you are the seat at distance 1.
+function takeDiscard(seat) {
+  if (G.turn !== seat || G.phase !== 'draw') return null;
+  if (G.pileDead) return null;                 // a steal killed it for this turn
+  const c = G.discard.pop();
+  if (!c) return null;
+  G.players[seat].hand.push(c);
+  G.phase = 'meld';
+  G.drewThisTurn = true;
+  return c;
+}
+
+// A steal, out of turn. `claims` are the seats that called hold; the closest to
+// the discarder wins and pays a card from the stock.
+function applySteal(discarder, claims) {
+  const claim = resolveClaim(discarder, claims, G.seats);
+  if (!claim) return null;
+  const card = G.discard.pop();
+  if (!card) return null;
+  G.players[claim.seat].hand.push(card);
+  if (claim.penalty) {
+    refillStockIfEmpty();
+    if (G.stock.length) G.players[claim.seat].hand.push(G.stock.shift());
+  } else {
+    // NO PENALTY MEANS IT WAS THEIR TURN, AND THIS WAS THEIR DRAW.
+    //
+    //   "when i discard and west takes my discard, it then proceeds to take
+    //    another card"
+    //
+    // Quite so: the seat at distance 1 is the player about to play, and taking
+    // the face-up card is the ordinary way to start a turn, not a steal on top
+    // of one. The phase was left on 'draw', so they took the card and then
+    // drew again — seven cards to nine on a single turn.
+    if (claim.seat === G.turn) { G.phase = 'meld'; G.drewThisTurn = true; }
+  }
+  // Turn order is untouched — see nextSeat(). Only the pile changes.
+  G.pileDead = pileIsDeadAfter(claim);
+  return claim;
+}
+
+// ── LAYING THE CONTRACT ─────────────────────────────────────────────────
+//   "Players can only complete the contract as defined. No new runs or trios
+//    are allowed."
+//
+// So this is all-or-nothing and exact: the groups offered must be precisely the
+// trios and runs the contract names, no more and no fewer. A player holding
+// three trios on the 2-trio contract lays two of them.
+function checkContractGroups(groups) {
+  const con = contract();
+  if (!Array.isArray(groups)) return { ok: false, why: 'nothing offered' };
+  const trios = groups.filter(g => isTrio(g));
+  const runs  = groups.filter(g => isRun(g));
+  if (trios.length + runs.length !== groups.length) {
+    return { ok: false, why: 'every group must be a trio or a run' };
+  }
+  // A group cannot count as both, so a trio of one rank is never also a run.
+  if (trios.length !== con.trios || runs.length !== con.runs) {
+    return { ok: false, why: `this contract is ${con.name}` };
+  }
+  return { ok: true };
+}
+
+// `declares` is optional, one entry per group: a list of ranks naming the
+// jokers in that run. Only needed where a joker caps an end — see resolveRun().
+function layContract(seat, groups, declares) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (p.down) return { ok: false, why: 'already down' };
+  const chk = checkContractGroups(groups);
+  if (!chk.ok) return chk;
+  const flat = groups.flat();
+  if (!flat.every(c => p.hand.includes(c))) return { ok: false, why: 'not in your hand' };
+  if (new Set(flat.map(c => c.id)).size !== flat.length) {
+    return { ok: false, why: 'a card cannot be in two groups' };
+  }
+  // Resolve every run BEFORE anything moves, so a run that still needs a
+  // declaration does not leave half a contract on the table.
+  const laid = [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    if (isTrio(g)) { laid.push({ type: 'trio', cards: [...g] }); continue; }
+    const r = resolveRun(g, declares && declares[i]);
+    if (!r) return { ok: false, why: 'that is not a run' };
+    if (r.need === 'declare') {
+      return { ok: false, need: 'declare', group: i, choices: r.choices,
+               why: 'say which card the joker stands for' };
+    }
+    r.jokers.forEach(j => { j.card.standsFor = { rank: j.rank, suit: j.suit }; });
+    laid.push({ type: 'run', cards: r.order });
+  }
+  laid.forEach(m => p.melds.push(m));
+  p.hand = p.hand.filter(c => !flat.includes(c));
+  p.down = true;
+  p.meldedThisTurn = true;
+  return { ok: true };
+}
+
+// ── LAYING OFF ──────────────────────────────────────────────────────────
+//   "Players are allowed to place more cards on their contract trios or runs.
+//    They can do this while placing their contract down or on a subsequent
+//    turn."
+//   "A player can only discard onto their own melds."
+//   "Players do not play on other players contracts either."
+// `declared` names any joker being added to a run that could sit at either
+// end — one rank per such joker. Omitted, an ambiguous add is refused and the
+// caller is told to ask.
+function layOff(seat, cards, meldIndex, declared) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (!p.down) return { ok: false, why: 'lay your contract first' };
+  const meld = p.melds[meldIndex];
+  if (!meld) return { ok: false, why: 'no such meld of yours' };
+  if (!cards.every(c => p.hand.includes(c))) return { ok: false, why: 'not in your hand' };
+  // A turn ENDS with a card thrown, always:
+  //
+  //   "going out, player must discard one"
+  //
+  // So the last card in a hand can never be laid off — it is the discard, and
+  // without it the turn has no way to end. Going out is laying off everything
+  // down to one card and throwing that.
+  if (cards.length >= p.hand.length) {
+    return { ok: false, why: 'keep a card to discard — that is how a turn ends' };
+  }
+  const after = [...meld.cards, ...cards];
+  const stillGood = meld.type === 'trio' ? isTrio(after) : isRun(after);
+  if (!stillGood) return { ok: false, why: `that does not fit your ${meld.type}` };
+
+  if (meld.type === 'run') {
+    // A RUN IS KEPT IN SEQUENCE.
+    //
+    //   "when AIs place their contract they should be in numerical order if it
+    //    is a run"
+    //
+    // They were laid in order and then went out of it, because this appended:
+    // 4-5-6-7 plus the 3 became 4,5,6,7,3. Every run is re-read into sequence
+    // after the add, so order survives whatever is laid onto it.
+    //
+    // Jokers already down keep the rank they were declared as — their identity
+    // was settled when they were laid and buying one back depends on it.
+    const held = meld.cards.filter(c => c.isJoker && c.standsFor).map(c => c.standsFor.rank);
+    const adding = cards.filter(c => c.isJoker).length;
+    // ONE RANK PER JOKER, AND NO MORE.
+    //
+    //   "i had 2 jokers which i had exchanged and i was going to place them one
+    //    after the other but it didn't let me, i only placed one then it
+    //    wouldn't let me place the next one behind it"
+    //
+    // This used to be held.concat(declared). A declaration comes back out of
+    // `choices`, which already covers EVERY joker in the run — so adding the
+    // held one again made three ranks for two jokers, and nothing she picked
+    // could ever match. The second joker could not be placed at all.
+    const want = (declared && declared.length) ? declared : held;
+    const r = resolveRun(after, want.length ? want : undefined);
+    if (!r) return { ok: false, why: 'that does not fit your run' };
+    if (r.need === 'declare') {
+      // Only arrangements in which every rank already claimed is still claimed
+      // by SOME joker in the run. The jokers may shuffle which of them is
+      // which — adding one at the front of Jo-4-5-6-7 makes the new one the 2
+      // and the old one the 3, or the other way about — and that is harmless,
+      // because what matters to a player holding a card is whether a joker
+      // standing for it is still there to buy. What would NOT be harmless is a
+      // rank quietly vanishing from the run while somebody waits to buy it.
+      let choices = r.choices;
+      if (held.length) {
+        const keep = choices.filter(ch =>
+          held.every(h => ch.some(x => declaredRankIndex(x) === RANKS.indexOf(h))));
+        if (keep.length) choices = keep;
+      }
+      // Narrowed to one, there is nothing left to ask.
+      if (choices.length === 1) return layOff(seat, cards, meldIndex, choices[0]);
+      // A joker that could cap either end is the player's choice, not ours.
+      //
+      //   "i just placed a joker i had in my hand, and it only took it on the
+      //    back end. i wanted it in the front end because it gave me more
+      //    possibilities"
+      return { ok: false, need: 'declare', choices, adding,
+               why: 'say which card the joker stands for' };
+    }
+    meld.cards = r.order;
+    r.jokers.forEach(j => { j.card.standsFor = { rank: j.rank, suit: j.suit }; });
+  } else {
+    meld.cards = after;
+  }
+  p.hand = p.hand.filter(c => !cards.includes(c));
+  return { ok: true };
+}
+
+// ── THE DISCARD, WHICH ENDS THE TURN ────────────────────────────────────
+function discardCard(seat, card) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (!p.hand.includes(card)) return { ok: false, why: 'not in your hand' };
+  p.hand = p.hand.filter(c => c !== card);
+  G.discard.push(card);
+  return { ok: true, ...endTurn(seat) };
+}
+
+// Going out. The hand is empty, by whatever route the last card left it.
+//
+//   "Complete the contract and go out by discarding all the cards in the
+//    player's hand."
+//
+// A player who lays off their last card has nothing left to throw, so the turn
+// simply ends — there is no card to make a final discard with.
+function endTurn(seat) {
+  const p = G.players[seat];
+  let out = false;
+  if (p.down && p.hand.length === 0) {
+    p.wentOut = true;
+    G.roundOver = true;
+    out = true;
+  } else {
+    // The turn is over without going out, so laying the contract is no longer
+    // "this turn" — it was backwards here, clearing the flag on everyone EXCEPT
+    // the player whose turn ended, which is the one player it had to clear. A
+    // player who laid their contract and discarded would have gone on carrying
+    // the flag and scored -20 for going out two turns later.
+    p.meldedThisTurn = false;
+    G.turn = nextSeat(seat, G.seats);
+    G.phase = 'draw';
+    G.drewThisTurn = false;
+    G.pileDead = false;          // the fresh discard is live for the next seat
+  }
+  return { wentOut: out };
+}
+
+// ── THE JOKER EXCHANGE ──────────────────────────────────────────────────
+//   "if one of the other players has the card it was meant to replace, they
+//    can, on their turn, exchange the joker for the card and use the joker to
+//    complete their contract."
+//
+// The card it was meant to replace is written on it — see resolveRun(). An
+// exact match, rank and suit: a joker standing for the 6♥ is bought with the
+// 6♥ and nothing else. The player need not be down; buying a joker to finish a
+// contract is the whole point of the move.
+// What a joker on the table is standing in for.
+//
+// In a RUN it is one exact card — the 6♥ and nothing else — and resolveRun()
+// wrote that on it when the run went down. In a TRIO it is the rank and the
+// rank only: a joker in 9♠ 9♥ J is "a nine", and any nine buys it, because a
+// trio does not care about suits.
+//
+// Trios were given no identity at all until v0.5, so a joker in one could
+// never be exchanged — and the first and fourth contracts are nothing but
+// trios:
+//
+//   "how do i take the joker from someone elses hand, i have a replacement but
+//    it wont let me"
+function jokerStandsFor(meld, jokerCard) {
+  if (!jokerCard || !jokerCard.isJoker || !meld) return null;
+  if (meld.type === 'trio') {
+    const rank = trioRank(meld.cards);
+    return rank ? { rank, suit: null } : null;      // null suit = any suit
+  }
+  return jokerCard.standsFor || null;
+}
+
+// Does this card buy that joker? Rank always; suit only when the joker has one.
+function cardBuysJoker(card, want) {
+  if (!card || card.isJoker || !want) return false;
+  if (card.rank !== want.rank) return false;
+  return want.suit === null || card.suit === want.suit;
+}
+
+function exchangeJoker(seat, card, ownerSeat, meldIndex, jokerCard) {
+  const p = G.players[seat];
+  if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  if (!p.hand.includes(card)) return { ok: false, why: 'not in your hand' };
+  const meld = G.players[ownerSeat] && G.players[ownerSeat].melds[meldIndex];
+  if (!meld) return { ok: false, why: 'no such meld' };
+  const at = meld.cards.indexOf(jokerCard);
+  if (at < 0 || !jokerCard.isJoker) return { ok: false, why: 'that is not a joker on the table' };
+  const sf = jokerStandsFor(meld, jokerCard);
+  if (!sf) return { ok: false, why: 'that joker stands for nothing yet' };
+  if (!cardBuysJoker(card, sf)) {
+    return { ok: false, why: `that joker is ${sf.suit ? 'the ' + sf.rank + sf.suit
+                                                     : 'a ' + sf.rank}` };
+  }
+  // The meld has to survive the swap. It always does — a natural of the right
+  // rank is exactly what the joker was pretending to be — but a rule that is
+  // obviously true is cheap to check and expensive to assume.
+  const after = meld.cards.map((c, i) => i === at ? card : c);
+  if (meld.type === 'trio' ? !isTrio(after) : !isRun(after)) {
+    return { ok: false, why: 'that would break the meld' };
+  }
+  meld.cards[at] = card;
+  p.hand = p.hand.filter(c => c !== card);
+  delete jokerCard.standsFor;
+  p.hand.push(jokerCard);
+  return { ok: true };
+}
+
+function scoreRound() {
+  return G.players.map(p => roundScore(p));
+}
+
+// ── SAVING ──────────────────────────────────────────────────────────────
+// A reload used to throw the game away.
+//
+//   "do i reload and restart a new game or how do i retry on the same deal i
+//    have?"
+//
+// Now it resumes where it was, and the deal has a number so it can be played
+// again from the start. Wrapped throughout: a page opened from a file has no
+// reliable storage and a game that cannot save is still a game.
+const SAVE_KEY = 'carioca.save';
+const SAVE_FIELDS = ['seats','contractIdx','dealer','turn','players','stock',
+                     'discard','pileDead','phase','drewThisTurn','roundOver','seed'];
+
+function saveGame() {
+  try {
+    const out = {};
+    SAVE_FIELDS.forEach(k => { out[k] = G[k]; });
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: APP_VERSION, G: out }));
+  } catch (e) { /* no storage; play on */ }
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const save = JSON.parse(raw);
+    if (!save || !save.G || !save.G.players || !save.G.players.length) return false;
+    SAVE_FIELDS.forEach(k => { if (save.G[k] !== undefined) G[k] = save.G[k]; });
+    return true;
+  } catch (e) { return false; }
+}
+
+function clearSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// THE AI
+//
+// Every judgement sits behind a named arm so it can be measured against
+// itself rather than argued about — the same way the Canasta AI was built.
+// ════════════════════════════════════════════════════════════════════════
+let AI_ARM = null;            // e.g. 'nosteal', 'nohold' — see the tests
+// Per-seat arms, so a change can be played AGAINST itself at the same table.
+// A symmetric soak cannot tell "this helps me" from "this helps everybody":
+// four seats all declining to feed their left makes every hand lighter, which
+// looks like a gain and may be nothing of the kind.
+let AI_ARMS = null;           // e.g. [null,'nocare',null,'nocare']
+function arm(name, seat) {
+  if (AI_ARMS && seat !== undefined) return AI_ARMS[seat] === name;
+  return AI_ARM === name;
+}
+
+// ── READING A HAND AGAINST THE CONTRACT ─────────────────────────────────
+// Every group the hand could contribute to. A candidate is some naturals plus
+// the number of jokers it would take to finish — so {cards:[7♠,7♥], jokers:1}
+// is a trio two thirds of the way there.
+//
+// A group needs at least one natural: a pile of jokers is a trio of nothing
+// and a run of no suit.
+// ── READING A HAND AGAINST THE CONTRACT ─────────────────────────────────
+// Cards are counted, never reserved by identity.
+//
+// The first version picked particular cards for each candidate group and then
+// looked for groups that did not overlap. Two decks make that wrong twice
+// over: four Jacks with one wanted in a run, and the trio offered only the
+// first three in hand order —
+//
+//   "it refused to let me play the contract down"
+//
+// — and then, after that was patched, identical cards. A hand with three 7♥
+// still failed, because the run candidate and the trio candidate both named
+// THE SAME 7♥ and nothing could substitute its twin. Built to contain their
+// own contract and handed back, 262 hands in 2,800 were refused.
+//
+// So: runs demand exact cards (a run of hearts needs the 9 OF HEARTS), trios
+// demand a rank and do not care about suits. Satisfy the runs first because
+// they are the constrained ones, then take whatever is left for the trios.
+function handSupply(hand) {
+  const exact = new Map(), rank = new Map();
+  hand.filter(c => !c.isJoker).forEach(c => {
+    exact.set(c.rank + '|' + c.suit, (exact.get(c.rank + '|' + c.suit) || 0) + 1);
+    rank.set(c.rank, (rank.get(c.rank) || 0) + 1);
+  });
+  return { exact, rank };
+}
+
+// Every run window worth trying: a suit and a starting rank, with at least one
+// card of it in hand. Deduped on which of its ranks the hand can actually
+// supply, since two windows that take the same cards are one choice.
+function runWindows(hand) {
+  const sup = handSupply(hand);
+  const out = [], seen = new Set();
+  SUITS.forEach(suit => {
+    for (let start = 0; start < RANKS.length; start++) {
+      const ranks = [];
+      for (let k = 0; k < RUN_MIN; k++) ranks.push(RANKS[(start + k) % RANKS.length]);
+      const have = ranks.filter(r => (sup.exact.get(r + '|' + suit) || 0) > 0);
+      if (!have.length) continue;
+      const key = suit + ':' + have.join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ suit, ranks });
+    }
+  });
+  return out;
+}
+
+function readHand(hand, con) {
+  const slots = con.trios * TRIO_MIN + con.runs * RUN_MIN;
+  const jokersHeld = hand.filter(c => c.isJoker).length;
+  const windows = runWindows(hand).sort((a, b) => 0);
+
+  let best = { used: -1, runs: [], trios: [] };
+
+  // Given the runs chosen, the trios are independent: each wants up to three
+  // of its own rank and the ranks do not compete, so taking the richest is
+  // simply right — no search needed.
+  const finishWithTrios = (sup, chosenRuns, runNaturals) => {
+    const left = [...sup.rank.entries()]
+      .map(([r, n]) => ({ r, n: Math.min(TRIO_MIN, n) }))
+      .sort((a, b) => b.n - a.n)
+      .slice(0, con.trios);
+    const trioNaturals = left.reduce((t, x) => t + x.n, 0);
+    const used = runNaturals + trioNaturals;
+    if (used > best.used) {
+      best = { used, runs: chosenRuns.map(x => ({ ...x })), trios: left.map(x => x.r) };
+    }
+  };
+
+  const takeRun = (sup, w) => {
+    const taken = [];
+    w.ranks.forEach(r => {
+      const k = r + '|' + w.suit;
+      if ((sup.exact.get(k) || 0) > 0) {
+        sup.exact.set(k, sup.exact.get(k) - 1);
+        sup.rank.set(r, sup.rank.get(r) - 1);
+        if (!sup.rank.get(r)) sup.rank.delete(r);
+        taken.push(r);
+      }
+    });
+    return taken;
+  };
+  const putRun = (sup, w, taken) => {
+    taken.forEach(r => {
+      const k = r + '|' + w.suit;
+      sup.exact.set(k, (sup.exact.get(k) || 0) + 1);
+      sup.rank.set(r, (sup.rank.get(r) || 0) + 1);
+    });
+  };
+
+  const sup = handSupply(hand);
+  const chooseRuns = (i, from, chosen, naturals) => {
+    if (i === con.runs) { finishWithTrios(sup, chosen, naturals); return; }
+    // Even taking four naturals for every remaining run cannot beat best.
+    if (naturals + (con.runs - i) * RUN_MIN + con.trios * TRIO_MIN <= best.used) return;
+    let any = false;
+    for (let k = from; k < windows.length; k++) {
+      const w = windows[k];
+      const taken = takeRun(sup, w);
+      if (taken.length) {
+        any = true;
+        chosen.push({ suit: w.suit, ranks: w.ranks, taken });
+        chooseRuns(i + 1, k + 1, chosen, naturals + taken.length);
+        chosen.pop();
+      }
+      putRun(sup, w, taken);
+    }
+    if (!any) finishWithTrios(sup, chosen, naturals);   // a hand with no run at all
+  };
+  if (con.runs === 0) finishWithTrios(sup, [], 0);
+  else chooseRuns(0, 0, [], 0);
+
+  const deficit = Math.max(0, slots - best.used - jokersHeld);
+  return { deficit, naturalsUsed: best.used, plan: best, jokersHeld, slots };
+}
+
+// Can it go down right now, and with which cards? Jokers are handed out here —
+// to the groups that need them, biggest shortfall first, so a run two cards
+// short is finished before a trio one card short is padded.
+// `extend` adds any card still spare onto a group it fits, which is her rule:
+//
+//   "Players are allowed to place more cards on their contract trios or runs.
+//    They can do this while placing their contract down or on a subsequent
+//    turn."
+//
+// Only for a HUMAN laying a chosen selection. The AI calls this with its whole
+// hand, where extending would shovel everything onto the table at once and
+// leave nothing to discard — it lays the contract and then sheds through
+// aiLayOff(), which has its own floor.
+function buildContract(hand, con, extend) {
+  const read = readHand(hand, con);
+  if (read.deficit > 0) return null;
+  // The plan says WHAT is needed; hand out the actual cards here, runs first
+  // because they are the ones that want a particular suit.
+  const pool = hand.filter(c => !c.isJoker).slice();
+  const jokers = hand.filter(c => c.isJoker).slice();
+  const takeExact = (rank, suit) => {
+    const i = pool.findIndex(c => c.rank === rank && c.suit === suit);
+    return i >= 0 ? pool.splice(i, 1)[0] : null;
+  };
+  const takeRank = rank => {
+    const i = pool.findIndex(c => c.rank === rank);
+    return i >= 0 ? pool.splice(i, 1)[0] : null;
+  };
+  const groups = [];
+  read.plan.runs.forEach(r => {
+    const cards = [], gaps = [];
+    r.ranks.forEach(rank => {
+      const c = takeExact(rank, r.suit);
+      if (c) cards.push(c); else gaps.push(rank);
+    });
+    groups.push({ kind: 'run', cards, jokers: gaps.length });
+  });
+  read.plan.trios.forEach(rank => {
+    const cards = [];
+    for (let k = 0; k < TRIO_MIN; k++) { const c = takeRank(rank); if (c) cards.push(c); }
+    groups.push({ kind: 'trio', cards, jokers: TRIO_MIN - cards.length });
+  });
+  groups.sort((a, b) => b.jokers - a.jokers);
+  let n = 0;
+  for (const g of groups) {
+    for (let k = 0; k < g.jokers; k++) {
+      if (n >= jokers.length) return null;
+      g.cards.push(jokers[n++]);
+    }
+  }
+  // Sanity: the plan must actually have produced legal groups.
+  for (const g of groups) {
+    if (g.kind === 'trio' ? !isTrio(g.cards) : !isRun(g.cards)) return null;
+  }
+  if (extend) {
+    const used = new Set(groups.flatMap(g => g.cards));
+    // Everything offered that fits goes on. Keeping a card to discard is NOT
+    // this function's business: it is handed a selection, and the discard comes
+    // from the rest of the hand. Guarding here kept the A♦ off a run she had
+    // explicitly picked, because the selection happened to have one spare.
+    let spare = hand.filter(c => !used.has(c));
+    let moved = true;
+    while (moved && spare.length > 0) {
+      moved = false;
+      for (const c of spare) {
+        for (const g of groups) {
+          const after = [...g.cards, c];
+          if (g.kind === 'trio' ? isTrio(after) : isRun(after)) {
+            g.cards = after; used.add(c);
+            spare = spare.filter(x => x !== c);
+            moved = true; break;
+          }
+        }
+        if (moved) break;
+      }
+    }
+  }
+  // Put them back in contract order — trios first, then runs — so the caller's
+  // declaration list lines up with the groups.
+  const out = [...groups.filter(g => g.kind === 'trio'), ...groups.filter(g => g.kind === 'run')];
+  return out.map(g => g.cards);
+}
+
+// ── WOULD THIS CARD HELP? ───────────────────────────────────────────────
+// The only honest measure: does the hand read better with it than without.
+function cardHelps(hand, card, con) {
+  const before = readHand(hand, con).deficit;
+  const after  = readHand([...hand, card], con).deficit;
+  return before - after;          // >0 means it moved the player closer
+}
+
+// Does this card have a home on one of this player's own melds? Once a player
+// is DOWN this is the only question that matters about a card, and it replaces
+// every contract-shaped judgement below.
+//
+//   "Players do not play on other players contracts either."
+function fitsOwnMeld(p, card) {
+  return p.melds.some(m => {
+    const after = [...m.cards, card];
+    return m.type === 'trio' ? isTrio(after) : isRun(after);
+  });
+}
+
+// ── THE DISCARD ─────────────────────────────────────────────────────────
+// Throw the card the contract does not want. Among cards that cost nothing,
+// throw the dearest — every point left in a hand counts against its owner when
+// somebody else goes out, and a joker is 25 of them.
+//
+// Safety comes last and is deliberately weak: this game shows almost nothing
+// about what an opponent is collecting until they go down, and guessing from
+// the discards alone is how a player talks themselves out of a good throw.
+// Would the seat to my left have an obvious use for this card? Only what the
+// table shows: their melds, which anyone can see. Their hand is theirs.
+//
+//   "ai's need to be careful, as much as possible, not to discard a card that
+//    the next player can take and meld onto their hand"
+//
+// Two ways it helps them, and the second is the one that stings: a card that
+// goes straight onto a meld of theirs, and a card that buys a joker back off
+// the table.
+function feedsNextPlayer(seat, card) {
+  if (arm('nocare', seat)) return false;
+  const left = G.players[nextSeat(seat, G.seats)];
+  if (left.down && fitsOwnMeld(left, card)) return true;
+  return !!buysAJoker(card, seat);
+}
+
+function aiDiscardChoice(seat) {
+  const p = G.players[seat];
+  const con = contract();
+  if (!p.hand.length) return null;
+  // ONCE DOWN, THE CONTRACT IS NOT THE QUESTION ANY MORE.
+  //
+  // This used to score a down player's hand against the contract it had
+  // already laid, which is a question with no answer — so every card tied and
+  // the tie-break threw the dearest. Four players each keeping their cheapest
+  // cards ended up passing the same 2s, 3s and 4s round the table for two
+  // thousand turns: thirteen rounds in forty never finished, and the stock had
+  // moved thirty-six cards in all that time because the pile always looked
+  // more attractive than a fresh draw.
+  //
+  // A player who is down wants one thing — an empty hand — so a card is worth
+  // keeping only if it has a home on their own melds.
+  if (p.down) {
+    const useless = p.hand.filter(c => !fitsOwnMeld(p, c));
+    let pool = useless.length ? useless : p.hand;
+    // Among cards we do not want, prefer one the player on our left cannot
+    // use. "As much as possible" — if every one of them helps them, the turn
+    // still has to end, so throw the dearest and take the loss.
+    const safe = pool.filter(c => !feedsNextPlayer(seat, c));
+    if (safe.length) pool = safe;
+    return pool.reduce((a, b) => cardPoints(b) > cardPoints(a) ? b : a);
+  }
+  const base = readHand(p.hand, con).deficit;
+  let best = null, bestKey = null;
+  p.hand.forEach(card => {
+    const rest = p.hand.filter(c => c !== card);
+    const cost = readHand(rest, con).deficit - base;   // 0 = not needed
+    // Cost to us first, then whether it helps the player on our left, then the
+    // points. Second and not first on purpose: a card the contract needs is
+    // worth more than a card an opponent might use, and a discard that wrecks
+    // our own hand to be tidy is a bad trade.
+    const key = [cost, feedsNextPlayer(seat, card) ? 1 : 0, -cardPoints(card)];
+    if (!bestKey || key[0] < bestKey[0] ||
+        (key[0] === bestKey[0] && key[1] < bestKey[1]) ||
+        (key[0] === bestKey[0] && key[1] === bestKey[1] && key[2] < bestKey[2])) {
+      best = card; bestKey = key;
+    }
+  });
+  return best;
+}
+
+// ── DRAW OR TAKE THE FACE-UP CARD ───────────────────────────────────────
+// Is there a joker on the table that this card would buy?
+//
+//   "if there is a discard that players can take and exchange with a joker on
+//    the table, they should take it, this is mainly true when they can
+//    exchange without a penalty during their turn"
+//
+// A joker is the most useful card in the game and twenty-five points against
+// you if you are caught with it — but held it fits anywhere, which is what
+// finishes a contract. Taking a 6♥ to turn it into a joker is a straight
+// upgrade and it costs nothing on your own turn.
+function buysAJoker(card, seat) {
+  if (arm('nojokerbuy', seat)) return null;
+  for (let s = 0; s < G.seats; s++) {
+    for (const m of G.players[s].melds) {
+      for (const c of m.cards) {
+        if (!c.isJoker) continue;
+        if (cardBuysJoker(card, jokerStandsFor(m, c))) return { seat: s, meld: m, joker: c };
+      }
+    }
+  }
+  return null;
+}
+
+function aiWantsDiscard(seat) {
+  if (arm('nodraw', seat)) return false;
+  const top = topOfDiscard();
+  if (!top || G.pileDead) return false;
+  const p = G.players[seat];
+  // A card that buys a joker is worth taking whatever else it is for.
+  if (buysAJoker(top, seat)) return true;
+  // Down: the face-up card is worth taking only if it can go straight back out
+  // onto a meld. Anything else is one more card to get rid of.
+  if (p.down) return fitsOwnMeld(p, top);
+  return cardHelps(p.hand, top, contract()) > 0;
+}
+
+// ── CALLING HOLD ────────────────────────────────────────────────────────
+// A steal costs TWO cards — the one taken and the penalty from stock — and
+// every card in a hand is a card that has to be got rid of before going out.
+// So it is worth it only when the card is one the contract actually needs, and
+// not when the round is nearly over and the penalty would more likely be
+// points in hand than help.
+const STEAL_MIN_STOCK = 10;
+function aiWantsToSteal(seat, card) {
+  if (arm('nosteal', seat)) return false;
+  const p = G.players[seat];
+  if (p.down) return false;                     // already down; nothing to build
+  if (G.stock.length < STEAL_MIN_STOCK) return false;
+  return cardHelps(p.hand, card, contract()) > 0;
+}
+
+// Everyone who would call hold on the card just discarded. The human is asked
+// separately — this is the AI seats only, and each decides from its own hand.
+function aiClaimants(discarder, humanSeat) {
+  const out = [];
+  for (let s = 0; s < G.seats; s++) {
+    if (s === discarder || s === humanSeat) continue;
+    if (aiWantsToSteal(s, topOfDiscard())) out.push(s);
+  }
+  return out;
+}
+
+// ── GOING DOWN, AND WHEN NOT TO ─────────────────────────────────────────
+//   "Players have the option of placing their contract cards down or waiting to
+//    completely meld all their cards. Melding completely earns more points than
+//    placing the contract and eventually going out. However, this move is
+//    risky."
+//
+// The risk is being caught holding the lot. So: go down as soon as the contract
+// is there — EXCEPT when the whole hand can go in one turn, which is the -20
+// and is not a gamble at all once it is in reach.
+//
+// Holding a complete contract back in the hope of going out later is the gamble
+// she describes, and it is not taken: an opponent going out first turns a made
+// contract into a hand full of penalty points.
+function aiCanGoOutNow(seat) {
+  const p = G.players[seat];
+  const con = contract();
+  const groups = buildContract(p.hand, con);
+  if (!groups) return null;
+  const spare = p.hand.filter(c => !groups.flat().includes(c));
+  if (spare.length === 0) return null;          // nothing to throw; impossible
+  // Everything but one card has to find a home on our own melds.
+  const melds = groups.map(g => ({ type: isTrio(g) ? 'trio' : 'run', cards: [...g] }));
+  const left = [...spare];
+  let moved = true;
+  while (moved && left.length > 1) {
+    moved = false;
+    for (let i = 0; i < left.length && left.length > 1; i++) {
+      for (const m of melds) {
+        const after = [...m.cards, left[i]];
+        if (m.type === 'trio' ? isTrio(after) : isRun(after)) {
+          m.cards = after; left.splice(i, 1); moved = true; break;
+        }
+      }
+      if (moved) break;
+    }
+  }
+  return left.length === 1 ? { groups, discard: left[0] } : null;
+}
+
+// Lay the contract, naming any end-joker. The AI declares the HIGH cap —
+// 4-5-6-(7) rather than (3)-4-5-6 — which is her own reading of what an end
+// joker is for. A human is ASKED instead; see askDeclarations().
+function aiLayContract(seat) {
+  const p = G.players[seat];
+  const groups = buildContract(p.hand, contract());
+  if (!groups) return false;
+  const declares = groups.map(g => {
+    if (isTrio(g)) return null;
+    const r = resolveRun(g);
+    if (!r || !r.need) return null;
+    return r.choices[r.choices.length - 1];     // the high cap
+  });
+  return layContract(seat, groups, declares).ok;
+}
+
+// Shed whatever the melds will take, down to the last card.
+function aiLayOff(seat) {
+  const p = G.players[seat];
+  let moved = true, any = false;
+  while (moved && p.hand.length > 1) {
+    moved = false;
+    for (const card of [...p.hand]) {
+      if (p.hand.length <= 1) break;
+      for (let m = 0; m < p.melds.length; m++) {
+        let res = layOff(seat, [card], m);
+        // Nobody to ask, so the AI takes the high cap, as it does when laying
+        // a contract. A human is asked — see humanLayOff().
+        if (res.need === 'declare' && res.choices && res.choices.length) {
+          res = layOff(seat, [card], m, res.choices[res.choices.length - 1]);
+        }
+        if (res.ok) { moved = true; any = true; break; }
+      }
+      if (moved) break;
+    }
+  }
+  return any;
+}
+
+// A turn in two halves, so the table can show the first one happening.
+//
+//   "i think maybe show in actual time, that the next player is moving the
+//    card from the pile or the stock onto their hand"
+//
+// The draw used to be folded into the whole turn and the board simply appeared
+// changed. Split, the UI can fly the card from wherever it came from into the
+// seat that took it, and say so.
+function aiDrawPhase(seat) {
+  if (G.roundOver || G.turn !== seat || G.phase !== 'draw') return null;
+  if (aiWantsDiscard(seat)) {
+    const c = takeDiscard(seat);
+    return c ? { card: c, from: 'pile' } : null;
+  }
+  const c = drawFromStock(seat);
+  return c ? { card: c, from: 'stock' } : null;
+}
+
+// One AI turn, start to finish.
+// Cash in any card we hold that buys a joker off the table. Free on our own
+// turn, and a joker in hand is worth more than the natural it replaces.
+function aiBuyJokers(seat) {
+  if (arm('nojokerbuy', seat)) return false;
+  let any = true, did = false;
+  while (any) {
+    any = false;
+    for (const card of [...G.players[seat].hand]) {
+      if (card.isJoker) continue;
+      const hit = buysAJoker(card, seat);
+      if (!hit) continue;
+      const mi = G.players[hit.seat].melds.indexOf(hit.meld);
+      if (exchangeJoker(seat, card, hit.seat, mi, hit.joker).ok) { any = true; did = true; break; }
+    }
+  }
+  return did;
+}
+
+function aiTakeTurn(seat) {
+  if (G.roundOver || G.turn !== seat) return false;
+  if (G.phase === 'draw') aiDrawPhase(seat);
+  if (G.phase !== 'meld') return false;
+  aiBuyJokers(seat);
+  const p = G.players[seat];
+  if (!p.down) {
+    const out = aiCanGoOutNow(seat);
+    if (out) { aiLayContract(seat); aiLayOff(seat); }
+    else aiLayContract(seat);
+  }
+  if (p.down) aiLayOff(seat);
+  const card = aiDiscardChoice(seat);
+  if (!card) return false;
+  discardCard(seat, card);
+  return true;
+}
+
+// The second half: everything after the draw.
+function aiPlayPhase(seat) {
+  if (G.roundOver || G.turn !== seat || G.phase !== 'meld') return false;
+  aiBuyJokers(seat);
+  const p = G.players[seat];
+  if (!p.down) {
+    if (aiCanGoOutNow(seat)) { aiLayContract(seat); aiLayOff(seat); }
+    else aiLayContract(seat);
+  }
+  if (p.down) aiLayOff(seat);
+  const card = aiDiscardChoice(seat);
+  if (!card) return false;
+  discardCard(seat, card);
+  return true;
+}
+
+// Play a whole round with every seat on the AI, resolving steals between
+// turns. Returns the scores. This is the soak: a game that cannot finish
+// itself has a bug in it somewhere, and nothing else finds those.
+function playRound(contractIdx, dealer, seed, seats, maxTurns) {
+  startRound(contractIdx, dealer, seed, seats);
+  let turns = 0;
+  const cap = maxTurns || 2000;
+  while (!G.roundOver && turns++ < cap) {
+    const seat = G.turn;
+    const before = G.discard.length;
+    if (!aiTakeTurn(seat)) break;
+    if (G.roundOver) break;
+    // Somebody may want what was just thrown.
+    if (G.discard.length > before - 1) {
+      const claims = aiClaimants(seat, -1);
+      if (claims.length) applySteal(seat, claims);
+    }
+  }
+  return { turns, over: G.roundOver, scores: scoreRound() };
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// THE TABLE — rendering and the human's turn
+// ════════════════════════════════════════════════════════════════════════
+const ME = 0;
+const SEAT_NAME = ['You', 'West', 'North', 'East'];
+let selected = [];            // cards picked up out of the hand
+let holdTimer = null;
+
+const el = id => document.getElementById(id);
+function banner(text, ms) {
+  const b = el('banner');
+  b.textContent = text; b.style.display = 'block';
+  clearTimeout(banner._t);
+  banner._t = setTimeout(() => { b.style.display = 'none'; }, ms || 2600);
+}
+
+// ── DRAWING A CARD ──────────────────────────────────────────────────────
+const PIPS = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10 };
+function cardEl(c, faceUp) {
+  const d = document.createElement('div');
+  d.className = 'card' + (faceUp ? '' : ' back');
+  if (!faceUp) return d;
+  if (c.isJoker) {
+    d.classList.add('black', 'joker');
+    d.innerHTML = `<div class="ix tl">★<span class="s">J</span></div>
+                   <div class="court">JOKER</div>
+                   <div class="ix br">★<span class="s">J</span></div>`;
+    if (c.standsFor) d.title = `standing in for the ${c.standsFor.rank}${c.standsFor.suit}`;
+    return d;
+  }
+  d.classList.add(RED_SUITS.includes(c.suit) ? 'red' : 'black');
+  const ix = `<div class="ix tl">${c.rank}<span class="s">${c.suit}</span></div>
+              <div class="ix br">${c.rank}<span class="s">${c.suit}</span></div>`;
+  let body;
+  if (PIPS[c.rank]) {
+    const n = PIPS[c.rank];
+    let cells = '';
+    for (let i = 0; i < n; i++) {
+      const flip = i >= Math.ceil(n / 2) ? ' flip' : '';
+      const mid  = (n % 2 === 1 && i === n - 1) ? ' mid' : '';
+      cells += `<span class="${flip}${mid}">${c.suit}</span>`;
+    }
+    body = `<div class="pips${n <= 3 ? ' one' : ''}">${cells}</div>`;
+  } else if (c.rank === 'A') {
+    body = `<div class="big">${c.suit}</div>`;
+  } else {
+    body = `<div class="court">${c.rank}${c.suit}</div>`;
+  }
+  return Object.assign(d, { innerHTML: ix + body });
+}
+
+// ── THE FAN ─────────────────────────────────────────────────────────────
+// Her sample arcs the hand, so each card gets a rotation about a pivot well
+// below the row. The spread narrows as the hand grows, so thirteen cards sit
+// in the same width as seven rather than running off the table.
+function renderFan(host, cards, faceUp, onClick) {
+  host.innerHTML = '';
+  const n = cards.length;
+  if (!n) { host.style.height = 'var(--card-h)'; return; }
+  const cw = parseFloat(getComputedStyle(document.documentElement)
+                        .getPropertyValue('--card-w')) || 76;
+  const ch = cw * 1.42;
+  const mid = (n - 1) / 2;
+  const room = (host.clientWidth || window.innerWidth) - 24;
+  const lap = n > 1 ? Math.min(cw * 0.82, (room - cw) / (n - 1)) : 0;
+  const step = Math.min(4.5, 34 / Math.max(1, n));     // degrees between cards
+  const arc  = Math.min(22, 4 + n * 1.4);              // how high the middle rides
+  // The height goes on the FAN, not the row around it. The cards are absolute
+  // and sit on the fan's own baseline, so a fan of zero height hung them above
+  // it — over the action buttons — with the reserved space left empty below.
+  //
+  // And a rotated card hangs BELOW its own baseline: turning it about its
+  // bottom centre swings the far corner down by half a width times the sine of
+  // the angle. The outermost card was 11px past the bottom of the screen and
+  // its corners were being shaved off.
+  const tilt = (step * mid) * Math.PI / 180;
+  const drop = Math.ceil(Math.abs(Math.sin(tilt)) * cw / 2) + 2;
+  const rise = Math.ceil(Math.abs(Math.sin(tilt)) * ch);
+  host.style.height = Math.round(ch + arc + rise + drop + 6) + 'px';
+  cards.forEach((c, i) => {
+    const d = cardEl(c, faceUp);
+    const off = i - mid;
+    const lift = mid ? arc * (1 - Math.pow(off / mid, 2)) : arc;
+    d.style.left = `calc(50% + ${off * lap}px - var(--card-w) / 2)`;
+    d.style.bottom = drop + 'px';
+    d.style.transform = `translateY(${-lift}px) rotate(${off * step}deg)`;
+    d.style.zIndex = String(10 + i);
+    if (onClick) {
+      d.classList.add('pick');
+      if (selected.includes(c)) {
+        d.classList.add('sel');
+        d.style.transform = `translateY(${-lift - 20}px) rotate(${off * step}deg)`;
+      }
+      // TAP TO PICK, DRAG TO REARRANGE.
+      //
+      //   "i need to be able to move the cards together so that i can think
+      //    about my hand … once you start creating the runs, it would be
+      //    helpful to be able to move them around"
+      //
+      // Pointer events rather than HTML5 drag, so a finger works the same as a
+      // mouse. A press that never moves is a tap and selects; past a few
+      // pixels it becomes a drag and the card follows, dropping into whatever
+      // slot it is nearest. The hand is not re-rendered mid-drag — that would
+      // destroy the element under the pointer.
+      d.style.touchAction = 'none';
+      let sx = 0, sy = 0, dragging = false, active = false;
+      d.addEventListener('pointerdown', ev => {
+        sx = ev.clientX; sy = ev.clientY; dragging = false; active = true;
+        // Capture keeps the moves coming when the pointer leaves the card, but
+        // it is a nicety and not the state. Gating the drag on
+        // hasPointerCapture() meant any refusal silently killed dragging
+        // altogether, which is a bad way to depend on a convenience.
+        try { d.setPointerCapture(ev.pointerId); } catch (e) {}
+      });
+      d.addEventListener('pointercancel', () => { active = false; dragging = false; });
+      d.addEventListener('pointermove', ev => {
+        if (!active) return;
+        const dx = ev.clientX - sx, dy = ev.clientY - sy;
+        if (!dragging && Math.hypot(dx, dy) < 7) return;
+        if (!dragging) dropTargets(true);
+        dragging = true;
+        d.style.zIndex = '200';
+        d.style.transform = `translate(${dx}px, ${dy - lift - 14}px) rotate(0deg)`;
+        markOver(d, ev.clientX, ev.clientY);
+      });
+      d.addEventListener('pointerup', ev => {
+        if (!active) return;
+        active = false;
+        if (!dragging) { onClick(c); return; }
+        dropTargets(false);
+        const hit = under(d, ev.clientX, ev.clientY);
+        if (hit && hit.kind === 'meld') {
+          const res = tryLayOff([c], hit.index);
+          // Re-draw whatever the answer was. The card has to go back to the
+          // fan either way — left where the drag dropped it, it is a lifted
+          // element with no job, covering anything underneath.
+          if (res && res.need !== 'declare') selected = selected.filter(x => x !== c);
+          render();
+          return;
+        }
+        if (hit && hit.kind === 'discard') {
+          selected = [];
+          humanDiscard(c);
+          return;
+        }
+        // Nowhere in particular — so it was a rearrangement.
+        const hand = G.players[ME].hand;
+        const from = hand.indexOf(c);
+        const centre = host.getBoundingClientRect().left + host.clientWidth / 2;
+        let to = Math.round((ev.clientX - centre) / (lap || cw) + mid);
+        to = Math.max(0, Math.min(hand.length - 1, to));
+        if (from >= 0 && to !== from) {
+          hand.splice(from, 1);
+          hand.splice(to, 0, c);
+        }
+        render();
+      });
+    }
+    host.appendChild(d);
+  });
+}
+
+// Fly a card from where it came from to the seat that took it. Cosmetic, and
+// the whole point: without it the board simply appears changed and there is no
+// way to see that North just lifted the card you were about to hold.
+function flyCard(fromEl, toEl, card, faceUp, done) {
+  if (!fromEl || !toEl) { if (done) done(); return; }
+  const a = fromEl.getBoundingClientRect(), b = toEl.getBoundingClientRect();
+  const d = cardEl(card, faceUp);
+  d.className += ' flyer';
+  d.style.left = a.left + 'px';
+  d.style.top = a.top + 'px';
+  d.style.transform = 'translate(0,0) scale(1)';
+  document.body.appendChild(d);
+  fromEl.classList.add('src-glow');
+  setTimeout(() => fromEl.classList.remove('src-glow'), 600);
+  requestAnimationFrame(() => {
+    d.style.transform =
+      `translate(${b.left + b.width / 2 - a.left - a.width / 2}px,
+                 ${b.top + b.height / 2 - a.top - a.height / 2}px) scale(.55)`;
+    d.style.opacity = '0.25';
+  });
+  setTimeout(() => { d.remove(); if (done) done(); }, 580);
+}
+
+// What each seat last did, shown under its name until it does something else.
+const lastAction = [null, null, null, null];
+
+// The discards going back under the stock.
+//
+//   "can you show cards shuffling when the discard pile is reshuffled"
+//
+// It used to happen between two renders: the pile was forty cards and then it
+// was one, with nothing in between to say why.
+function showShuffle() {
+  const from = el('drop-discard'), to = el('src-stock');
+  if (!from || !to) return;
+  const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+  to.classList.add('shuffling');
+  setTimeout(() => to.classList.remove('shuffling'), 1500);
+  for (let k = 0; k < 5; k++) {
+    const d = cardEl(null, false);
+    d.className += ' shuffle-fly';
+    d.style.left = a.left + 'px';
+    d.style.top = a.top + 'px';
+    d.style.transitionDelay = (k * 85) + 'ms';
+    document.body.appendChild(d);
+    requestAnimationFrame(() => {
+      d.style.transform =
+        `translate(${b.left - a.left}px, ${b.top - a.top}px) rotate(${(k - 2) * 14}deg)`;
+      d.style.opacity = '0.15';
+    });
+    setTimeout(() => d.remove(), 700 + k * 85);
+  }
+  banner('The stock ran out — the discards are shuffled back.', 2600);
+}
+
+// What is under the pointer, ignoring the card being dragged. Its own element
+// sits directly beneath the finger, so it has to stand aside to be asked.
+function under(dragged, x, y) {
+  const was = dragged.style.pointerEvents;
+  dragged.style.pointerEvents = 'none';
+  const e = document.elementFromPoint(x, y);
+  dragged.style.pointerEvents = was;
+  if (!e || !e.closest) return null;
+  const meld = e.closest('#my-melds .meld');
+  if (meld) {
+    const i = [...el('my-melds').children].indexOf(meld);
+    if (i >= 0) return { kind: 'meld', index: i, node: meld };
+  }
+  const disc = e.closest('#drop-discard');
+  if (disc) return { kind: 'discard', node: disc };
+  return null;
+}
+
+function dropTargets(on) {
+  [...el('my-melds').children].forEach(m => {
+    m.classList.toggle('droppable', on);
+    if (!on) m.classList.remove('over');
+  });
+  const disc = el('drop-discard');
+  if (disc) {
+    disc.classList.toggle('droppable', on);
+    if (!on) disc.classList.remove('over');
+  }
+}
+
+function markOver(dragged, x, y) {
+  const hit = under(dragged, x, y);
+  [...el('my-melds').children].forEach(m => m.classList.remove('over'));
+  const disc = el('drop-discard');
+  if (disc) disc.classList.remove('over');
+  if (hit) hit.node.classList.add('over');
+}
+
+// ── THE WHOLE TABLE ─────────────────────────────────────────────────────
+function render() {
+  if (!G.players.length) return;
+  const con = contract();
+  el('contract-line').innerHTML =
+    `<div class="seat-label" style="font-size:1.05rem;">Contract ${G.contractIdx + 1} of 7
+       — <span style="color:var(--gold)">${con.name}</span></div>
+     <div style="opacity:.78;font-size:.82rem;">${G.turn === ME ? 'Your turn' : SEAT_NAME[G.turn] + "'s turn"}
+       <span style="opacity:.5;margin-left:8px;">v${APP_VERSION}</span>
+       <span style="opacity:.5;margin-left:8px;">Deal #${G.seed}</span></div>`;
+
+  // The three AI seats: a small fan of backs, a count, and their melds.
+  [1, 2, 3].forEach(s => {
+    const p = G.players[s];
+    const host = el('seat-' + s);
+    host.innerHTML = '';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;gap:7px;align-items:center;justify-content:center;';
+    head.innerHTML = `<span class="seat-label">${SEAT_NAME[s]}</span>
+      <span class="pill">${p.hand.length}</span>
+      ${p.down ? '<span class="pill down">DOWN</span>' : ''}
+      ${lastAction[s] ? `<span class="pill took ${lastAction[s].held ? 'held' : ''}">`
+                      + `${lastAction[s].text}</span>` : ''}
+      <span class="chip ${p.score < 0 ? 'neg' : ''}" title="running score">${p.score}</span>`;
+    host.appendChild(head);
+    host.classList.toggle('seat-active', G.turn === s && !G.roundOver);
+    const backs = document.createElement('div');
+    backs.className = 'backs micro';
+    p.hand.forEach(c => backs.appendChild(cardEl(c, false)));
+    host.appendChild(backs);
+    const melds = document.createElement('div');
+    melds.className = 'meld-row';
+    p.melds.forEach((m, mi) => melds.appendChild(meldEl(m, s, mi)));
+    host.appendChild(melds);
+  });
+
+  // Stock and discard, centre table.
+  const c = el('centre');
+  c.innerHTML = '';
+  const stock = document.createElement('div');
+  stock.style.cssText = 'text-align:center;cursor:pointer;';
+  const sb = cardEl(null, false);
+  sb.id = 'src-stock';
+  sb.style.cssText += 'box-shadow:0 3px 0 #7d1316, 0 5px 0 #5e0e11, 0 8px 14px rgba(0,0,0,.5);';
+  stock.appendChild(sb);
+  stock.insertAdjacentHTML('beforeend',
+    `<div class="pill" style="margin-top:8px;">${G.stock.length} left</div>`);
+  stock.addEventListener('click', () => humanDraw());
+  c.appendChild(stock);
+
+  const disc = document.createElement('div');
+  disc.id = 'drop-discard';
+  disc.style.cssText = 'text-align:center;cursor:pointer;min-width:var(--card-w);';
+  const top = topOfDiscard();
+  if (top) {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:relative;height:var(--card-h);';
+    const under = cardEl(top, true);
+    under.style.cssText += 'position:absolute;left:4px;top:-3px;transform:rotate(-7deg);opacity:.55;';
+    const face = cardEl(top, true);
+    face.id = 'src-discard';
+    face.style.cssText += 'position:absolute;left:0;top:0;';
+    holder.appendChild(under); holder.appendChild(face);
+    disc.appendChild(holder);
+  } else {
+    const gap = document.createElement('div');
+    gap.id = 'src-discard';
+    gap.style.cssText = 'width:var(--card-w);height:var(--card-h);border-radius:8px;'
+                      + 'border:2px dashed rgba(255,255,255,.3);';
+    disc.appendChild(gap);
+  }
+  const takeable = !G.pileDead && !!top;
+  disc.classList.toggle('dead-pile', !takeable && !!top);
+  disc.insertAdjacentHTML('beforeend',
+    `<div class="pill" style="margin-top:8px;">`
+    + (G.pileDead ? '✖ dead — a steal took it' : 'discard') + '</div>');
+  if (takeable || holdOpen) disc.addEventListener('click', () => humanTakeDiscard());
+  c.appendChild(disc);
+
+  // Mine.
+  const mm = el('my-melds');
+  mm.innerHTML = '';
+  G.players[ME].melds.forEach((m, i) => {
+    const e = meldEl(m, ME, i);
+    e.style.cursor = 'pointer';
+    e.addEventListener('click', () => humanLayOff(i));
+    mm.appendChild(e);
+  });
+  // MY OWN SCORE, which was nowhere on the table.
+  //
+  //   "what happened to my game point value? i only see the points for the AIs"
+  //
+  // Each AI seat carries a chip and this seat carried nothing — the one score
+  // she actually needs. Her hand's value goes beside it too: for an opponent
+  // that is a leak and she had it taken out, but these are her own cards and
+  // it is exactly the number she loses if somebody else goes out first.
+  const me = G.players[ME];
+  el('me-bar').innerHTML =
+    `<span class="seat-label">You</span>
+     <span class="pill">${me.hand.length}</span>
+     ${me.down ? '<span class="pill down">DOWN</span>' : ''}
+     <span class="chip ${me.score < 0 ? 'neg' : ''}" title="your running score">${me.score}</span>
+     <span class="pill" title="what your hand costs you if someone goes out now"
+       >hand ${handPoints(me.hand)}</span>`;
+  renderFan(el('my-hand'), G.players[ME].hand, true, humanPick);
+  renderActions();
+  if (!G.roundOver) saveGame();
+  // And at the top of the turn, before the draw, when the joker is marked but
+  // not yet takeable.
+  if (G.turn === ME && G.phase === 'draw' && !G.roundOver) {
+    const soon = G.players.flatMap(p => p.melds.flatMap(m =>
+      m.cards.filter(c => c.isJoker && couldBuy(c, m)).map(c => ({ c, m }))))[0];
+    if (soon && render._soon !== soon.c.id) {
+      render._soon = soon.c.id;
+      banner(`Your ${nameCard(couldBuy(soon.c, soon.m))} buys a Joker on the table — `
+           + `take a card first, then tap it.`, 5000);
+    }
+    if (!soon) render._soon = null;
+  }
+
+  // A swap you can make right now is worth saying out loud once — it is the
+  // only move on the table that lives on somebody else's melds.
+  if (G.turn === ME && G.phase === 'meld' && !G.roundOver) {
+    const swap = G.players.flatMap((p, s) => p.melds.flatMap(m =>
+      m.cards.filter(c => c.isJoker && myMatchFor(c, m))
+             .map(c => ({ c, s, m }))))[0];
+    if (swap && render._said !== swap.c.id) {
+      render._said = swap.c.id;
+      const mine = myMatchFor(swap.c, swap.m);
+      banner(`Your ${nameCard(mine)} buys the Joker on `
+           + `${swap.s === ME ? 'your' : SEAT_NAME[swap.s] + "'s"} meld — tap the glowing one.`,
+             5000);
+    }
+    if (!swap) render._said = null;
+  }
+}
+
+// A meld on the table. Any joker in it is standing in for a real card, and the
+// player holding that card may buy it back on their turn:
+//
+//   "if one of the other players has the card it was meant to replace, they
+//    can, on their turn, exchange the joker for the card and use the joker to
+//    complete their contract."
+//
+// There was no way to do this from the table at all — the rule was built and
+// tested and simply unreachable. A joker you can buy right now pulses gold;
+// tap it and the swap happens.
+function meldEl(m, ownerSeat, meldIndex) {
+  const d = document.createElement('div');
+  d.className = 'meld';
+  m.cards.forEach(c => {
+    const e = cardEl(c, true);
+    const sf = jokerStandsFor(m, c);
+    if (c.isJoker && sf) {
+      e.classList.add('jk');
+      e.title = sf.suit ? `standing in for the ${sf.rank}${sf.suit}`
+                        : `standing in for a ${sf.rank}`;
+      const mine = myMatchFor(c, m);
+      const later = !mine && couldBuy(c, m);
+      if (later) {
+        // I hold the card but cannot act yet — say so rather than look inert.
+        e.classList.add('waiting');
+        e.title += ` — your ${nameCard(later)} buys it, but draw a card first`;
+      }
+      if (mine && ownerSeat !== undefined) {
+        e.classList.add('swappable');
+        e.title += ' — tap to swap your ' + nameCard(mine) + ' for it';
+        e.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const res = exchangeJoker(ME, myMatchFor(c, m), ownerSeat, meldIndex, c);
+          if (!res.ok) { banner(res.why, 4000); return; }
+          selected = [];
+          banner(`You gave the ${nameCard(mine)} and took the Joker.`, 3400);
+          render();
+        });
+      }
+    }
+    d.appendChild(e);
+  });
+  return d;
+}
+
+// The card in my hand that would buy this joker back, whether or not I can act
+// on it yet. In a run that is one exact card; in a trio, any card of the rank.
+function couldBuy(joker, meld) {
+  const sf = jokerStandsFor(meld, joker);
+  if (!sf || G.roundOver) return null;
+  return G.players[ME].hand.find(c => cardBuysJoker(c, sf)) || null;
+}
+
+// …and whether the swap can be made right now. It cannot during the draw: the
+// turn has not really started until a card is taken.
+//
+// Asked twice: "how do i take a joker from someone's hand?" — once answered,
+// and asked again, which is the game failing to say anything rather than her
+// failing to read. Looking at the table before drawing, a joker she could buy
+// was indistinguishable from one she could not.
+function myMatchFor(joker, meld) {
+  if (G.turn !== ME || G.phase !== 'meld') return null;
+  return couldBuy(joker, meld);
+}
+
+function renderActions() {
+  const bar = el('actions');
+  bar.innerHTML = '';
+  const p = G.players[ME];
+  const mine = G.turn === ME && !G.roundOver;
+  const add = (label, fn, cls) => {
+    const b = document.createElement('button');
+    b.className = 'action-btn' + (cls ? ' ' + cls : '');
+    b.textContent = label;
+    b.disabled = !fn;
+    if (fn) b.addEventListener('click', fn);
+    bar.appendChild(b);
+    return b;
+  };
+  if (!mine) { add(`${SEAT_NAME[G.turn]} is playing…`, null); return; }
+  if (G.phase === 'draw') {
+    add('Draw from stock', humanDraw);
+    if (!G.pileDead && topOfDiscard()) add('Take the face-up card', humanTakeDiscard);
+    return;
+  }
+  const seln = selected.length;
+  if (!p.down) {
+    add(`Lay the contract (${contract().name})`, seln ? humanLayContract : null);
+  }
+  add('Discard', seln === 1 ? () => humanDiscard(selected[0]) : null, 'warn');
+  if (seln) add('Clear', () => { selected = []; render(); });
+  // Sorting is the coarse version of dragging: by rank gathers the trios, by
+  // suit lines the runs up. Drag from there to taste.
+  add('⇅ rank', () => sortHand('rank'));
+  add('⇅ suit', () => sortHand('suit'));
+}
+
+// ── THE HUMAN'S TURN ────────────────────────────────────────────────────
+function sortHand(by) {
+  const r = c => c.isJoker ? 99 : RANKS.indexOf(c.rank);
+  const u = c => c.isJoker ? 9 : SUITS.indexOf(c.suit);
+  G.players[ME].hand.sort((a, b) =>
+    by === 'suit' ? (u(a) - u(b)) || (r(a) - r(b))
+                  : (r(a) - r(b)) || (u(a) - u(b)));
+  render();
+}
+
+function humanPick(card) {
+  const i = selected.indexOf(card);
+  if (i >= 0) selected.splice(i, 1); else selected.push(card);
+  render();
+}
+
+function humanDraw() {
+  if (G.turn !== ME || G.phase !== 'draw') return;
+  const refilled = G.stock.length === 0 && G.discard.length > 1;
+  if (refilled) showShuffle();
+  const c = drawFromStock(ME);
+  if (!c) { banner('The stock is empty.'); return; }
+  banner(`You drew the ${nameCard(c)}.`, 1600);
+  render();
+}
+
+function humanTakeDiscard() {
+  if (G.turn !== ME || G.phase !== 'draw') return;
+  if (G.pileDead) { banner('A steal killed the pile — draw from the stock.'); return; }
+  const c = takeDiscard(ME);
+  if (!c) { banner('Nothing to take.'); return; }
+  render();
+}
+
+// The selection is handed to the engine as groups. The player picks all the
+// cards for the contract at once and the game works out which are the trios
+// and which are the runs — the same job readHand() already does for the AI.
+function humanLayContract() {
+  const con = contract();
+  const groups = buildContract(selected, con, true);
+  if (!groups) {
+    banner(`Those cards are not ${con.name}. Pick exactly the contract.`, 4200);
+    return;
+  }
+  // The hand has to keep one back to end the turn with — see layOff().
+  if (G.players[ME].hand.length - groups.flat().length < 1) {
+    banner('Keep a card to discard — that is how a turn ends. '
+         + 'Leave one out of the selection.', 4600);
+    return;
+  }
+  askDeclarations(groups, groups.map(() => null), 0);
+}
+
+// A joker on the END of a run could cap either side, and which it is decides
+// what card can buy it back later — so it is the player's call, not the
+// game's:
+//
+//   "i have a joker in my hand and it is asking me to say which card it stands
+//    for, how do i do that?"
+//
+// It was asking and there was no way to answer. It used to pick the high cap
+// silently, which is a decision taken on her behalf; now it asks, one run at a
+// time, and only when the run is genuinely ambiguous.
+function askDeclarations(groups, declares, i) {
+  while (i < groups.length) {
+    const g = groups[i];
+    if (isTrio(g)) { i++; continue; }
+    const r = resolveRun(g, declares[i]);
+    if (r && r.need === 'declare') { showDeclareModal(groups, declares, i, r.choices); return; }
+    i++;
+  }
+  const res = layContract(ME, groups, declares);
+  if (!res.ok) { banner(res.why, 4200); return; }
+  selected = [];
+  banner('Contract down!', 1800);
+  render();
+}
+
+// Show a choice as the RUN IT MAKES, not as a list of card names.
+//
+//   "look at my hand and see what it is asking me, because i do not understand"
+//
+// Her run was A♠ 10♠ J♠ K♠ and three Jokers, and the options read "8♠ and 9♠
+// and Q♠", "9♠ and Q♠ and 2♠", "Q♠ and 2♠ and 3♠". Every one of those is a
+// true statement about which cards the Jokers would stand for, and none of
+// them shows the thing being chosen: where the run sits. Laid out in sequence
+// with the Jokers in place, the question answers itself.
+function choiceLine(cards, choice) {
+  const r = resolveRun(cards, choice);
+  if (!r || r.need) return choice.join(' and ');
+  return r.order.map(c => {
+    if (!c.isJoker) return `<span style="opacity:.95">${c.rank}${c.suit}</span>`;
+    const j = r.jokers.find(x => x.card === c);
+    return `<span style="color:var(--gold);">(${j ? j.rank + j.suit : 'J'})</span>`;
+  }).join(' ');
+}
+
+function showDeclareModal(groups, declares, i, choices) {
+  const run = groups[i].slice().sort((a, b) =>
+    (a.isJoker ? 99 : RANKS.indexOf(a.rank)) - (b.isJoker ? 99 : RANKS.indexOf(b.rank)));
+  const shown = run.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
+  window._declChoices = choices;
+  const btns = choices.map((ch, k) =>
+    `<button class="action-btn" style="margin:5px;display:block;width:100%;
+       font-size:.98rem;letter-spacing:.02em;"
+       onclick="pickDeclaration(${i}, ${k})">${choiceLine(groups[i], ch)}</button>`).join('');
+  el('overlay').innerHTML = `<div class="panel">
+      <h2>Where does this run sit?</h2>
+      <p style="opacity:.85;margin:4px 0 6px;">You picked: <b>${shown}</b></p>
+      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:380px;">
+        Your Jokers can stand in anywhere, so the same cards make more than one
+        run. Pick the one you want — the cards in
+        <span style="color:var(--gold)">(gold)</span> are what the Jokers become,
+        and those are the cards another player could swap for them.</p>
+      <div style="max-width:380px;margin:0 auto;">${btns}</div>
+    </div>`;
+  el('overlay').style.display = 'flex';
+  window._declPending = { groups, declares };
+}
+
+function pickDeclaration(i, k) {
+  const p = window._declPending;
+  if (!p) return;
+  p.declares[i] = window._declChoices[k];
+  el('overlay').style.display = 'none';
+  askDeclarations(p.groups, p.declares, i + 1);
+}
+
+function humanLayOff(meldIndex) {
+  if (G.turn !== ME) { banner(`It is ${SEAT_NAME[G.turn]}'s turn.`, 2600); return; }
+  if (G.phase !== 'meld') { banner('Take a card first.', 2600); return; }
+  // Silence was the worst part of this: clicking a meld with nothing picked up
+  // did nothing at all and said nothing either.
+  if (!selected.length) {
+    banner('Pick a card out of your hand first — then tap the meld, or just '
+         + 'drag the card onto it.', 4200);
+    return;
+  }
+  tryLayOff(selected, meldIndex);
+}
+
+// One place for both routes into a lay-off — the tap and the drag — so an
+// ambiguous joker is asked about either way.
+function tryLayOff(cards, meldIndex, declared) {
+  const res = layOff(ME, cards, meldIndex, declared);
+  if (res.need === 'declare') { showLayOffDeclare(cards, meldIndex, res.choices); return res; }
+  if (!res.ok) { banner(res.why, 4000); return res; }
+  selected = [];
+  render();
+  return res;
+}
+
+function showLayOffDeclare(cards, meldIndex, choices) {
+  const meld = G.players[ME].melds[meldIndex];
+  const shown = meld.cards.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
+  window._loChoices = choices;
+  window._loPending = { cards, meldIndex };
+  const after = [...meld.cards, ...cards];
+  const btns = choices.map((ch, k) =>
+    `<button class="action-btn" style="margin:5px;display:block;width:100%;
+       font-size:.98rem;letter-spacing:.02em;"
+       onclick="pickLayOffDeclaration(${k})">${choiceLine(after, ch)}</button>`).join('');
+  el('overlay').innerHTML = `<div class="panel">
+      <h2>Where does this run sit?</h2>
+      <p style="opacity:.85;margin:4px 0 6px;">Your run: <b>${shown}</b></p>
+      <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:380px;">
+        Pick where the run should sit — the cards in
+        <span style="color:var(--gold)">(gold)</span> are what the Jokers become,
+        and they decide which way it can still grow.</p>
+      <div>${btns}</div>
+      <div style="margin-top:10px;">
+        <button class="action-btn" onclick="cancelLayOffDeclare()">Cancel</button></div>
+    </div>`;
+  el('overlay').style.display = 'flex';
+}
+
+function pickLayOffDeclaration(k) {
+  const p = window._loPending;
+  if (!p) return;
+  window._loPending = null;
+  el('overlay').style.display = 'none';
+  tryLayOff(p.cards, p.meldIndex, window._loChoices[k]);
+}
+
+function cancelLayOffDeclare() {
+  window._loPending = null;
+  el('overlay').style.display = 'none';
+  render();
+}
+
+function humanDiscard(card) {
+  if (G.turn !== ME || G.phase !== 'meld') return;
+  lastAction.fill(null);
+  const res = discardCard(ME, card);
+  if (!res.ok) { banner(res.why, 3600); return; }
+  selected = [];
+  render();
+  if (res.wentOut) { endOfRound(); return; }
+  afterDiscard(ME);
+}
+
+function nameCard(c) {
+  return c.isJoker ? 'Joker' : c.rank + c.suit;
+}
+
+// ── THE HOLD WINDOW ─────────────────────────────────────────────────────
+// Nobody races. Every seat decides privately, the window closes, and the
+// closest claimant to the discarder wins — see resolveClaim(). An AI decides
+// in microseconds and a person does not, so reaction time is kept out of it.
+// How long the prompt stays up. 0 means it waits — which is the default,
+// because her rule gives the caller time:
+//
+//   "they should say 'hold' and they have a few minutes to think and steal it"
+//
+// The first version flashed a small button for 3,500ms and took it away again.
+// It worked — measured across 30 rounds it was offered on 557 of 827 discards,
+// and holding every time would have won 461 of them — and she still could not
+// use it, which is the only test that counts.
+let HOLD_MS = 0;
+let holdOpen = null;            // { discarder, aiClaims } while the prompt is up
+
+function afterDiscard(discarder) {
+  const top = topOfDiscard();
+  const aiClaims = aiClaimants(discarder, ME);
+  const iCould = discarder !== ME && top && G.turn !== ME;
+  if (!iCould) { closeHold(); settleClaims(discarder, aiClaims, false); return; }
+  openHold(discarder, aiClaims, top);
+}
+
+function openHold(discarder, aiClaims, top) {
+  holdOpen = { discarder, aiClaims };
+  const wrap = el('hold-wrap'), bar = el('hold-bar').firstElementChild;
+  el('hold-say').innerHTML =
+    `${SEAT_NAME[discarder]} threw the <span style="color:var(--gold)">${nameCard(top)}</span>`;
+  el('hold-note').textContent = G.turn === nextSeat(discarder, G.seats)
+    ? `you would draw a penalty card too — ${SEAT_NAME[G.turn]} sits closer and may take it first`
+    : 'you would draw a penalty card too';
+  wrap.style.display = 'block';
+  const src = el('src-discard');
+  if (src) { src.classList.add('holdable'); src.onclick = decideHold.bind(null, true); }
+  el('hold-btn').onclick = () => decideHold(true);
+  el('pass-btn').onclick = () => decideHold(false);
+  clearTimeout(holdTimer);
+  if (HOLD_MS > 0) {
+    bar.style.display = 'block';
+    bar.style.transition = 'none'; bar.style.width = '100%';
+    requestAnimationFrame(() => {
+      bar.style.transition = `width ${HOLD_MS}ms linear`; bar.style.width = '0%';
+    });
+    holdTimer = setTimeout(() => decideHold(false), HOLD_MS);
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function closeHold() {
+  clearTimeout(holdTimer);
+  el('hold-wrap').style.display = 'none';
+  const src = el('src-discard');
+  if (src) { src.classList.remove('holdable'); src.onclick = null; }
+}
+
+function decideHold(mine) {
+  if (!holdOpen) return;
+  const { discarder, aiClaims } = holdOpen;
+  holdOpen = null;
+  closeHold();
+  settleClaims(discarder, aiClaims, !!mine);
+}
+
+function settleClaims(discarder, aiClaims, humanClaimed) {
+  const claims = [...aiClaims];
+  if (humanClaimed) claims.push(ME);
+  if (claims.length) {
+    const top = topOfDiscard();
+    const who = resolveClaim(discarder, claims, G.seats);
+    applySteal(discarder, claims);
+    if (who) {
+      if (who.seat !== ME) {
+        lastAction[who.seat] = { text: `✋ held the ${nameCard(top)}`, held: true };
+        flyCard(el('src-discard'), el('seat-' + who.seat), top, true);
+      }
+      claims.filter(x => x !== who.seat && x !== ME)
+            .forEach(x => { lastAction[x] = { text: '✋ wanted it' }; });
+      if (humanClaimed && who.seat !== ME) {
+        banner(`You held the ${nameCard(top)}, but ${SEAT_NAME[who.seat]} sits closer to `
+             + `${SEAT_NAME[discarder]} and takes it. The player next in turn always wins a `
+             + `contested card.`, 5200);
+      } else if (!humanClaimed && G.turn === ME && who.penalty) {
+        // Her turn was next and the card went out from under her.
+        //
+        //   "could i have a message that says i didn't take the card i wanted
+        //    because someone before me took it"
+        banner(`${SEAT_NAME[who.seat]} held the ${nameCard(top)} before your turn — `
+             + `the pile is dead this turn, so draw from the stock.`, 5200);
+      }
+      const beaten = claims.filter(s => s !== who.seat);
+      banner(`${SEAT_NAME[who.seat]} held the ${nameCard(top)}`
+           + (beaten.length ? ` — ${beaten.map(s => SEAT_NAME[s]).join(' and ')} wanted it too, `
+                            + `but ${SEAT_NAME[who.seat]} sits closer to ${SEAT_NAME[discarder]}.` : '')
+           + (who.penalty ? ' Penalty card drawn.' : ''), 4200);
+    }
+  }
+  render();
+  stepAI();
+}
+
+// ── THE AI SEATS ────────────────────────────────────────────────────────
+function stepAI() {
+  if (G.roundOver) { endOfRound(); return; }
+  if (G.turn === ME) { render(); return; }
+  const seat = G.turn;
+  lastAction[seat] = { text: 'thinking…' };
+  render();
+  setTimeout(() => {
+    // THE DRAW, shown. Fly the card from the stock or the pile into the seat,
+    // and leave a note of what it took — the face-up card is public, so naming
+    // it gives nothing away that the table could not already see.
+    const src = G.phase === 'draw'
+      ? (aiWantsDiscard(seat) ? el('src-discard') : el('src-stock')) : null;
+    if (G.phase === 'draw' && !aiWantsDiscard(seat) &&
+        G.stock.length === 0 && G.discard.length > 1) showShuffle();
+    const drew = aiDrawPhase(seat);
+    const seatEl = el('seat-' + seat);
+    const finish = () => {
+      lastAction[seat] = drew
+        ? { text: drew.from === 'pile' ? `took the ${nameCard(drew.card)}` : 'drew' }
+        : { text: '…' };
+      render();
+      setTimeout(() => {
+        const before = G.discard.length;
+        aiPlayPhase(seat);
+        render();
+        if (G.roundOver) { endOfRound(); return; }
+        if (G.discard.length >= before) afterDiscard(seat); else stepAI();
+      }, 650);
+    };
+    if (drew && src) flyCard(src, seatEl, drew.card, drew.from === 'pile', finish);
+    else finish();
+  }, 700);
+}
+
+// Who went out, said properly.
+//
+//   "game ended and i didn't see who went out, it just said round over"
+//
+// It did say so — in grey, at 0.85 opacity, under a heading that said ROUND
+// OVER in twice the size. And the panel landed over the board the instant the
+// last card fell, so there was nothing to look at either. The name is the
+// heading now, the going-out row is marked, and the table gets a moment to be
+// seen first.
+function endOfRound() {
+  render();
+  const out = G.players.findIndex(p => p.wentOut);
+  const scores = scoreRound();
+  G.players.forEach((p, i) => { p.score += scores[i]; });
+  const last = G.contractIdx >= CONTRACTS.length - 1;
+  const best = Math.min(...G.players.map(p => p.score));
+  const rows = G.players.map((p, i) => {
+    const mine = i === out;
+    return `<tr style="${mine ? 'color:var(--gold);font-weight:800;' : ''}">
+      <td style="text-align:left;padding:4px 16px 4px 0;">
+        ${mine ? '🏁 ' : ''}${SEAT_NAME[i]}</td>
+      <td style="padding:4px 16px 4px 0;">${scores[i] > 0 ? '+' : ''}${scores[i]}</td>
+      <td style="font-weight:800;">${p.score}</td></tr>`;
+  }).join('');
+  const how = out < 0 ? ''
+    : scores[out] === -20
+      ? 'Contract and the whole hand in one turn — <b>−20</b>.'
+      : 'Out on a later turn — <b>−10</b>.';
+  const show = () => {
+    el('overlay').innerHTML = `<div class="panel">
+      <h2 style="color:var(--gold);font-size:1.7rem;">
+        ${out < 0 ? 'Nobody went out' : SEAT_NAME[out] + ' went out'}</h2>
+      <p style="opacity:.8;margin:2px 0 4px;font-size:.86rem;">
+        ${last ? 'Last contract' : 'Contract ' + (G.contractIdx + 1) + ' of 7'}
+        — ${CONTRACTS[G.contractIdx].name}</p>
+      <p style="opacity:.8;margin:0 0 14px;font-size:.86rem;">${how}</p>
+      <table style="margin:0 auto 16px;"><tr style="opacity:.6;font-size:.78rem;">
+        <td style="text-align:left;">seat</td><td>this round</td><td>total</td></tr>${rows}</table>
+      <p style="opacity:.6;font-size:.76rem;margin:-8px 0 14px;">fewest points wins</p>
+      ${last ? `<p style="color:var(--gold);font-weight:800;margin-bottom:14px;font-size:1.1rem;">
+                  ${SEAT_NAME[G.players.findIndex(p => p.score === best)]} wins with ${best}.</p>` : ''}
+      <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;">
+        <button class="action-btn" id="next-btn">${last ? 'Play again' : 'Next contract'}</button>
+        <button class="action-btn" id="replay-btn">↻ Replay deal #${G.seed}</button>
+      </div>
+      <p style="opacity:.55;font-size:.74rem;margin:12px 0 0;">
+        the same cards, dealt the same way</p>
+    </div>`;
+    el('overlay').style.display = 'flex';
+    el('next-btn').addEventListener('click', () => {
+      const keep = G.players.map(p => p.score);
+      if (last) clearSave();
+      newRound(last ? 0 : G.contractIdx + 1, (G.dealer + 1) % G.seats,
+               last ? null : keep);
+    });
+    el('replay-btn').addEventListener('click', () => {
+      // The scores are already banked for the round just played, so take them
+      // back off before dealing it again — otherwise a replay pays twice.
+      G.players.forEach((p, i) => { p.score -= scores[i]; });
+      replayDeal();
+    });
+  };
+  if (out >= 0) {
+    banner(`🏁 ${SEAT_NAME[out]} went out!`, 1500);
+    setTimeout(show, 1500);
+  } else show();
+}
+
+// ── STARTING ────────────────────────────────────────────────────────────
+// Play the hand that is on the table again, from the deal.
+function replayDeal() {
+  const keep = G.players.map(p => p.score);
+  const c = G.contractIdx, d = G.dealer, seed = G.seed;
+  startRound(c, d, seed, 4);
+  G.players.forEach((p, i) => { p.score = keep[i]; });
+  selected = []; lastAction.fill(null);
+  el('overlay').style.display = 'none';
+  render();
+  banner(`Deal #${seed} again — ${CONTRACTS[c].name}.`, 3200);
+  stepAI();
+}
+
+function newRound(contractIdx, dealer, keepScores, seed) {
+  startRound(contractIdx, dealer,
+             seed === undefined ? ((Date.now() % 100000) | 0) : seed, 4);
+  if (keepScores) G.players.forEach((p, i) => { p.score = keepScores[i]; });
+  selected = [];
+  el('overlay').style.display = 'none';
+  render();
+  banner(`Contract ${contractIdx + 1}: ${CONTRACTS[contractIdx].name}. `
+       + `${SEAT_NAME[G.turn]} to play.`, 3600);
+  stepAI();
+}
+
+// The hand is the biggest thing on the table and the thing most worth reading,
+// so it sizes to whichever runs out first — the width thirteen cards need, or
+// the height left once the seats, the centre and the buttons have taken theirs.
+function fitCards() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const byW = (w - 40) / 11.5;
+  const byH = (h - 250) / 4.2;
+  const cw = Math.max(38, Math.min(78, byW, byH));
+  document.documentElement.style.setProperty('--card-w', Math.round(cw) + 'px');
+  document.documentElement.style.setProperty('--card-h', Math.round(cw * 1.42) + 'px');
+}
+window.addEventListener('resize', () => { fitCards(); if (G.players.length) render(); });
+
+el('start-btn').addEventListener('click', () => {
+  fitCards();
+  clearSave();
+  newRound(0, 0, null);
+});
+
+// A game left open is picked up where it was.
+function offerResume() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(SAVE_KEY)); }
+                         catch (e) { return null; } })();
+  if (!saved || !saved.G || !saved.G.players || !saved.G.players.length) return;
+  const c = saved.G.contractIdx, s = saved.G.seed;
+  el('overlay').insertAdjacentHTML('afterbegin', '');
+  const panel = el('overlay').querySelector('.panel');
+  panel.insertAdjacentHTML('beforeend',
+    `<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.2);padding-top:12px;">
+       <button class="action-btn" id="resume-btn">Carry on with deal #${s}</button>
+       <p style="opacity:.6;font-size:.74rem;margin:8px 0 0;">
+         contract ${c + 1} of 7 — ${CONTRACTS[c].name}</p>
+     </div>`);
+  el('resume-btn').addEventListener('click', () => {
+    fitCards();
+    if (!loadGame()) { newRound(0, 0, null); return; }
+    selected = []; lastAction.fill(null);
+    el('overlay').style.display = 'none';
+    render();
+    banner(`Deal #${G.seed} — ${CONTRACTS[G.contractIdx].name}.`, 3000);
+    if (G.turn !== ME) stepAI();
+  });
+}
+offerResume();
+el('btn-menu').addEventListener('click', () => {
+  if (!G.players.length) return;
+  el('overlay').innerHTML = `<div class="panel">
+      <h2>Deal #${G.seed}</h2>
+      <p style="opacity:.8;margin:2px 0 14px;font-size:.86rem;">
+        Contract ${G.contractIdx + 1} of 7 — ${CONTRACTS[G.contractIdx].name}</p>
+      <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;">
+        <button class="action-btn" onclick="replayDeal()">↻ Replay this deal</button>
+        <button class="action-btn" onclick="closePanel()">Back to the game</button>
+      </div>
+      <p style="opacity:.55;font-size:.74rem;margin:12px 0 0;">
+        replaying deals the same cards again from the start</p>
+    </div>`;
+  el('overlay').style.display = 'flex';
+});
+function closePanel() { el('overlay').style.display = 'none'; render(); }
+
+el('btn-settings').addEventListener('click', () => {
+  const opts = [[0, 'Wait for me'], [8000, '8 seconds'], [4000, '4 seconds']];
+  const i = opts.findIndex(o => o[0] === HOLD_MS);
+  HOLD_MS = opts[(i + 1) % opts.length][0];
+  banner(`Hold prompt: ${opts[(i + 1) % opts.length][1]}.`, 2600);
+});
+el('btn-help').addEventListener('click', () => {
+  banner('Draw a card or take the face-up one, then discard. Lay the contract '
+       + 'exactly as named, add to your own melds, and go out by discarding '
+       + 'your last card.', 7000);
+});
+fitCards();
+
+</script>
+</body>
+</html>

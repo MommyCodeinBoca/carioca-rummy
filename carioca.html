@@ -239,6 +239,23 @@ body {
 #row-acts  { flex: 0 0 auto; padding: 6px 10px 8px; }
 #row-hand  { flex: 0 0 auto; position: relative; }
 .meld-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+
+/* ── A PHONE ────────────────────────────────────────────────────────────
+   Measured at 393x852, where two things broke: the ⇅ suit button ran off the
+   right edge of a single unwrapping row of controls, and the top line — the
+   contract, the version and the deal number — grew to two lines and drew over
+   North's seat, because the gap above North was a fixed 54px chosen on a
+   desktop. Both only show below about 600px, which is why a desktop told me
+   nothing. */
+#row-acts, #actions, #me-bar { flex-wrap: wrap; }
+@media (max-width: 620px) {
+  #contract-line { font-size: 0.86rem; line-height: 1.25; max-width: 94vw; }
+  #row-north { padding-top: 84px; }
+  #row-acts  { gap: 6px; padding: 4px 6px 6px; }
+  #actions .action-btn, #me-bar .pill, #me-bar .chip { font-size: 0.8rem; }
+  #actions .action-btn { padding: 7px 11px; }
+  .seat-label { font-size: 0.9rem; }
+}
 .backs { display: flex; justify-content: center; }
 .backs .card { margin-left: calc(var(--card-w) * -0.66); }
 .backs .card:first-child { margin-left: 0; }
@@ -384,7 +401,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.

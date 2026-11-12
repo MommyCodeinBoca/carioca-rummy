@@ -14,6 +14,8 @@ contracts to a finish.
     ./tests/run.sh            312 assertions, a 280-round soak, and 2,800
                               generated hands
 
+    ./tests/phonelayout.sh    the table at 393x852, and any size you pass it
+
 Deals are numbered and the number is on the table. ☰ replays the hand you are
 in; a round that ends offers the same. A game left open is picked up where it
 was when the page is opened again.
