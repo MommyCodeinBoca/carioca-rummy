@@ -554,6 +554,44 @@ window.addEventListener('load',()=>setTimeout(()=>{
      !/hand/.test(document.querySelector('#seat-2').textContent),
      document.querySelector('#seat-2').textContent.replace(/\s+/g,' ').trim().slice(0,40));
 
+  // ── THE HOLD PROMPT MUST NOT COVER THE HAND ──────────────────────────
+  //   "the message box is way too large in the middle and i cannot see my
+  //    cards when the message is there, so i can't see whether i need the card
+  //    or not"
+  startRound(0,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  G.turn=2; G.phase='draw'; render();
+  afterDiscard(1);
+  const hw=document.getElementById('hold-wrap');
+  ok('the prompt is up', getComputedStyle(hw).display!=='none');
+  const hr=hw.getBoundingClientRect();
+  const cards=[...document.getElementById('my-hand').children];
+  const covered=cards.filter(c=>{
+    const r=c.getBoundingClientRect();
+    return Math.min(hr.right,r.right)-Math.max(hr.left,r.left) > 2 &&
+           Math.min(hr.bottom,r.bottom)-Math.max(hr.top,r.top) > 2;
+  });
+  ok('THE REPORTED CASE: it covers none of my cards', covered.length===0,
+     covered.length+' of '+cards.length+' covered');
+  ok('...nor the discard pile it is asking about', (()=>{
+      const d=document.getElementById('drop-discard');
+      if(!d) return true;
+      const r=d.getBoundingClientRect();
+      return !(Math.min(hr.right,r.right)-Math.max(hr.left,r.left) > 2 &&
+               Math.min(hr.bottom,r.bottom)-Math.max(hr.top,r.top) > 2);
+    })());
+  ok('...and it is a strip, not a box', hr.height < 90, Math.round(hr.height)+'px tall');
+  ok('...with both answers reachable',
+     [...hw.querySelectorAll('.action-btn')].every(b=>{
+       const r=b.getBoundingClientRect();
+       const top=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+       return top && b.contains(top);
+     }));
+  document.getElementById('pass-btn').click();
+  ok('...and passing puts the buttons back',
+     getComputedStyle(hw).display==='none' &&
+     getComputedStyle(document.getElementById('actions')).display!=='none');
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';
