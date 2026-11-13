@@ -25,7 +25,7 @@ repo — `carioca-rummy` under the same account as Canasta — and:
     git push -u origin main
 
 **2. A Cloudflare project.** In the dashboard, create a Worker from that repo.
-Two settings decide whether it works at all, and the failure when they are
+Three settings decide whether it works at all, and the failure when they are
 wrong says nothing useful:
 
   * **Build command** — `./pwa.sh carioca.html`
@@ -36,6 +36,14 @@ wrong says nothing useful:
     This is what makes an ordinary commit cost nothing. Canasta learned it the
     expensive way: a provider that rebuilt on every push to main exhausted its
     free tier on documentation commits.
+  * **Deploy command** — `npx wrangler deploy`.
+    Cloudflare's current flow can leave this as `npx wrangler preview`, which
+    is a beta command for throwaway preview URLs. It fails the build outright
+    with "Your Wrangler configuration is missing a `previews` block" — and even
+    if it ran, it would not touch the live site. The tell is that the log says
+    "Success: Build command completed" and then fails on the deploy: the game
+    built fine, it just went nowhere. Do not add a `[previews]` block to make
+    that error go away; the command itself is the wrong one.
 
 The project NAME must match `name = "carioca-rummy"` in wrangler.toml, or the
 deploy goes to a different Worker and the site never changes.
