@@ -32,10 +32,14 @@ wrong says nothing useful:
     Without it Cloudflare deploys without building and fails with
     "Could not detect a directory containing static files", because `pwa/` is
     generated and is not in the repository.
-  * **Production branch** — `release`, not `main`.
-    This is what makes an ordinary commit cost nothing. Canasta learned it the
-    expensive way: a provider that rebuilt on every push to main exhausted its
-    free tier on documentation commits.
+  * **Production branch** — `main`.
+    Canasta uses a separate `release` branch, because Netlify rebuilt on every
+    push to main and its free tier was small enough that documentation commits
+    exhausted it. Do NOT copy that here. Cloudflare runs a *different* deploy
+    command for any branch that is not the production one, and its default
+    there is `npx wrangler preview`, which fails outright — see below. What
+    keeps an ordinary commit free is that Cloudflare builds on a PUSH, not a
+    commit, and publish.sh is the only thing that pushes.
   * **Deploy command** — `npx wrangler deploy`.
     Cloudflare's current flow can leave this as `npx wrangler preview`, which
     is a beta command for throwaway preview URLs. It fails the build outright
