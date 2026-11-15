@@ -63,9 +63,20 @@ document.getElementById('f').addEventListener('load', function(){
       // only ever looked at whatever happened to be on the table, so it passed
       // for weeks while thirteen cards ran off both edges of the phone — and a
       // card off the edge is a card you cannot see you have selected.
+      //
+      // Checked in BOTH phases, because the action row is taller in the draw
+      // phase — "Draw from stock" and "Take the face-up card" are long enough
+      // that the sort buttons wrap to a second line at 393px. A second row of
+      // buttons is exactly the thing that would push the fan off the bottom.
       var sizes = [7, 11, 13, 18, 24], bad = [];
+      var combos = [];
       sizes.forEach(function(n){
-        w.eval('G.turn=0; G.phase="meld";'
+        combos.push([n, 'meld', 'G.turn=0; G.phase="meld";']);
+        combos.push([n, 'draw', 'G.turn=0; G.phase="draw"; G.pileDead=false;']);
+      });
+      combos.forEach(function(cb){
+        var n = cb[0];
+        w.eval(cb[2]
              + 'G.players[0].hand=Array.from({length:'+n+'},function(_,i){'
              + ' return {rank:RANKS[i%13],suit:SUITS[i%4],isJoker:false,id:"z"+i}; });'
              + 'render();');
@@ -75,20 +86,39 @@ document.getElementById('f').addEventListener('load', function(){
           l2=Math.min(l2,r.left); r2=Math.max(r2,r.right); b2=Math.max(b2,r.bottom);
         });
         if (l2 < -1 || r2 > W + 1 || b2 > w.innerHeight + 1)
-          bad.push(n+' cards: left '+Math.round(l2)+' right '+Math.round(r2));
+          bad.push(n+' cards ('+cb[1]+'): left '+Math.round(l2)+' right '+Math.round(r2)
+                   +' bottom '+Math.round(b2)+' of '+w.innerHeight);
       });
-      ok('every hand size fits, not just the one dealt', bad.length === 0,
-         bad.length ? bad.join('; ') : sizes.join(', ')+' cards checked');
+      ok('every hand size fits, in both phases', bad.length === 0,
+         bad.length ? bad.join('; ') : sizes.join(', ')+' cards x draw/meld');
 
-      // Every control reachable.
-      var btns = [].slice.call(d.querySelectorAll('#actions .action-btn, .round-btn'));
-      var off = btns.filter(function(b){
-        var r = b.getBoundingClientRect();
-        return r.right > W + 1 || r.left < -1 || r.bottom > w.innerHeight + 1;
+      // Every control reachable — IN EVERY PHASE.
+      //
+      // This only ever looked at the meld phase, which is the roomiest one.
+      // The draw phase is the crowded one: "Draw from stock" and "Take the
+      // face-up card" are long labels, and v1.7 added the two sort buttons to
+      // that row. Checking one phase would have missed it entirely.
+      var phases = [
+        ['draw', 'G.turn=0; G.phase="draw"; G.pileDead=false;'],
+        ['meld', 'G.turn=0; G.phase="meld";'],
+        ['waiting', 'G.turn=1; G.phase="draw";']
+      ];
+      var offAll = [], seen = 0;
+      phases.forEach(function(ph){
+        w.eval(ph[1]
+             + 'G.players[0].hand=Array.from({length:11},function(_,i){'
+             + ' return {rank:RANKS[i%13],suit:SUITS[i%4],isJoker:false,id:"q"+i}; });'
+             + 'render();');
+        var btns = [].slice.call(d.querySelectorAll('#actions .action-btn, .round-btn'));
+        seen += btns.length;
+        btns.forEach(function(b){
+          var r = b.getBoundingClientRect();
+          if (r.right > W + 1 || r.left < -1 || r.bottom > w.innerHeight + 1)
+            offAll.push(ph[0]+': "'+b.textContent.trim()+'" right '+Math.round(r.right));
+        });
       });
-      ok('every button is on the screen', off.length === 0,
-         off.length ? off.length+' of '+btns.length+' off: "'+off[0].textContent.trim()+'"'
-                    : btns.length + ' checked');
+      ok('every button is on the screen, in every phase', offAll.length === 0,
+         offAll.length ? offAll.join('; ') : seen + ' checked across 3 phases');
 
       // Text in the top strip must not pile up on itself.
       var boxes = [];

@@ -592,6 +592,38 @@ window.addEventListener('load',()=>setTimeout(()=>{
      getComputedStyle(hw).display==='none' &&
      getComputedStyle(document.getElementById('actions')).display!=='none');
 
+
+  // The sort buttons belong to the hand, not to the turn.
+  //
+  // "the buttons for organizing the cards only show up when i have pulled a
+  // card from the stock" — renderActions returned early both when it was not
+  // my turn and during the draw, and both returns came before the sorts were
+  // added. Waiting is exactly when you want to tidy your hand.
+  const labels = () => [...document.getElementById('actions')
+                          .querySelectorAll('.action-btn')].map(b=>b.textContent);
+  const sorted = () => { const L=labels();
+                         return L.includes('⇅ rank') && L.includes('⇅ suit'); };
+
+  G.turn=0; G.phase='draw'; G.roundOver=false; selected=[]; render();
+  ok('the sorts are there before I have drawn', sorted(), labels().join(' | '));
+
+  G.turn=1; G.phase='draw'; render();
+  ok('...and while another player is thinking', sorted(), labels().join(' | '));
+
+  G.turn=0; G.phase='meld'; render();
+  ok('...and still there once I am melding', sorted(), labels().join(' | '));
+
+  // present is not the same as working: clicking must reorder the hand
+  G.turn=0; G.phase='draw'; render();
+  G.players[0].hand=[C('K','♠'),C('3','♥'),C('9','♦'),C('A','♣')];
+  render();
+  const rankBtn=[...document.getElementById('actions')
+                   .querySelectorAll('.action-btn')].find(b=>b.textContent==='⇅ rank');
+  rankBtn.click();
+  ok('...and clicking one during the draw actually sorts',
+     G.players[0].hand[0].rank==='A' && G.players[0].hand[3].rank==='K',
+     G.players[0].hand.map(c=>c.rank).join(','));
+
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));
  const pre=document.createElement('pre'); pre.id='results';

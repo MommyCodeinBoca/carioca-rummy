@@ -400,7 +400,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -2251,10 +2251,25 @@ function renderActions() {
     bar.appendChild(b);
     return b;
   };
-  if (!mine) { add(`${SEAT_NAME[G.turn]} is playing…`, null); return; }
+  // Sorting is the coarse version of dragging: by rank gathers the trios, by
+  // suit lines the runs up. Drag from there to taste.
+  //
+  // It goes in on EVERY render, including when it is not my turn, which is
+  // most of the time. Thinking about your hand is the thing you do WHILE
+  // waiting — deciding whether to call hold, or what you are short of — and
+  // the two early returns below used to skip these, so the buttons appeared
+  // only after drawing. Nothing here touches the game: it reorders my own
+  // hand, and selection holds card objects rather than positions, so it is
+  // safe at any moment.
+  const addSort = () => {
+    add('⇅ rank', () => sortHand('rank'));
+    add('⇅ suit', () => sortHand('suit'));
+  };
+  if (!mine) { add(`${SEAT_NAME[G.turn]} is playing…`, null); addSort(); return; }
   if (G.phase === 'draw') {
     add('Draw from stock', humanDraw);
     if (!G.pileDead && topOfDiscard()) add('Take the face-up card', humanTakeDiscard);
+    addSort();
     return;
   }
   const seln = selected.length;
@@ -2263,10 +2278,7 @@ function renderActions() {
   }
   add('Discard', seln === 1 ? () => humanDiscard(selected[0]) : null, 'warn');
   if (seln) add('Clear', () => { selected = []; render(); });
-  // Sorting is the coarse version of dragging: by rank gathers the trios, by
-  // suit lines the runs up. Drag from there to taste.
-  add('⇅ rank', () => sortHand('rank'));
-  add('⇅ suit', () => sortHand('suit'));
+  addSort();
 }
 
 // ── THE HUMAN'S TURN ────────────────────────────────────────────────────
