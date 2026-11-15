@@ -400,7 +400,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -2265,6 +2265,10 @@ function renderActions() {
     add('⇅ rank', () => sortHand('rank'));
     add('⇅ suit', () => sortHand('suit'));
   };
+  // While the hold prompt is up, the sorts are all that goes here: the strip
+  // beside them already says who threw what, so "West is playing…" would be
+  // saying it twice.
+  if (holdOpen) { addSort(); return; }
   if (!mine) { add(`${SEAT_NAME[G.turn]} is playing…`, null); addSort(); return; }
   if (G.phase === 'draw') {
     add('Draw from stock', humanDraw);
@@ -2519,7 +2523,13 @@ function openHold(discarder, aiClaims, top) {
     ? `+1 penalty card · ${SEAT_NAME[G.turn]} sits closer`
     : '+1 penalty card';
   wrap.style.display = 'flex';
-  el('actions').style.display = 'none';
+  // The row used to be hidden here, on the grounds that everything in it was
+  // dead during someone else's turn. Since v1.7 that is no longer true — the
+  // sorts work at any time — and hiding it took them away at the one moment
+  // they matter most: "the message box for hold it and pass appears and
+  // blocks the rank and suit buttons". renderActions leaves just the sorts.
+  el('actions').style.display = '';
+  renderActions();
   const src = el('src-discard');
   if (src) { src.classList.add('holdable'); src.onclick = decideHold.bind(null, true); }
   el('hold-btn').onclick = () => decideHold(true);
@@ -2541,6 +2551,7 @@ function closeHold() {
   clearTimeout(holdTimer);
   el('hold-wrap').style.display = 'none';
   el('actions').style.display = '';
+  renderActions();
   const src = el('src-discard');
   if (src) { src.classList.remove('holdable'); src.onclick = null; }
 }

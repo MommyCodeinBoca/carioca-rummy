@@ -581,6 +581,43 @@ window.addEventListener('load',()=>setTimeout(()=>{
                Math.min(hr.bottom,r.bottom)-Math.max(hr.top,r.top) > 2);
     })());
   ok('...and it is a strip, not a box', hr.height < 90, Math.round(hr.height)+'px tall');
+
+  // "the message box for hold it and pass appears and blocks the rank and
+  // suit buttons" — openHold used to hide #actions outright, which was fair
+  // when everything in it was dead during someone else's turn. The sorts are
+  // not dead, and working out whether you want the card is exactly when you
+  // want to tidy your hand. Present AND clickable: it blocked, not vanished.
+  const sortBtns = [...document.getElementById('actions')
+                      .querySelectorAll('.action-btn')]
+                      .filter(b=>/⇅/.test(b.textContent));
+  // Present in the DOM is not the same as on the screen: the row was hidden
+  // wholesale, so the buttons existed, measured 0x0, and a click at their
+  // centre landed on North. Require the row to be shown.
+  ok('...and the sorts survive the prompt',
+     sortBtns.length===2 &&
+     getComputedStyle(document.getElementById('actions')).display!=='none' &&
+     sortBtns.every(b=>b.getBoundingClientRect().width > 8),
+     'row is ' + getComputedStyle(document.getElementById('actions')).display
+       + ', labels: ' + [...document.getElementById('actions')
+           .querySelectorAll('.action-btn')].map(b=>b.textContent).join(' | '));
+  ok('...unblocked, not merely present', sortBtns.length===2 && sortBtns.every(b=>{
+       const r=b.getBoundingClientRect();
+       const top=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+       return top && b.contains(top);
+     }), sortBtns.map(b=>{
+       const r=b.getBoundingClientRect();
+       const t=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+       return b.textContent+'→'+(t?(t.textContent||t.id||t.tagName).slice(0,18):'nothing');
+     }).join('; '));
+  ok('...and they still sort while it is up', (()=>{
+       const h=G.players[0].hand;
+       if (h.length<2) return true;
+       sortBtns.find(b=>/rank/.test(b.textContent)).click();
+       const r=c=>c.isJoker?99:RANKS.indexOf(c.rank);
+       return G.players[0].hand.every((c,i,a)=>i===0||r(a[i-1])<=r(c));
+     })(), G.players[0].hand.map(c=>c.rank).join(','));
+  ok('...and the prompt is still up afterwards',
+     getComputedStyle(hw).display!=='none' && !!holdOpen);
   ok('...with both answers reachable',
      [...hw.querySelectorAll('.action-btn')].every(b=>{
        const r=b.getBoundingClientRect();
