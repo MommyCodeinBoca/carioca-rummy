@@ -86,9 +86,19 @@ window.addEventListener('load',()=>setTimeout(()=>{
         JSON.stringify(target.map(t=>t.rank+t.suit)));
 
     // ── BUYING THE JOKER BACK ───────────────────────────────────────────
+    //
+    // THE CONTRACT COMES FIRST:
+    //   "Players have to meld their contract before stealing a joker."
     const seven=C('7','♥');
     G.turn=2; G.phase='meld';
     G.players[2].hand=[seven, C('2','♣')];
+    G.players[2].down=false;
+    res=exchangeJoker(2, seven, 1, 0, jk);
+    ok('NOT before my contract is down', res.ok===false, res.why);
+    ok('...and it says why', /contract/.test(res.why||''), res.why);
+    ok('...and the joker is still on the table', !G.players[2].hand.includes(jk));
+
+    G.players[2].down=true;
     res=exchangeJoker(2, seven, 1, 0, jk);
     ok('THE EXCHANGE: the 7♥ buys the joker that stood for it', res.ok, res.why);
     ok('...the joker is in the buyer\'s hand', G.players[2].hand.includes(jk));
@@ -101,7 +111,7 @@ window.addEventListener('load',()=>setTimeout(()=>{
     seat1([...runA,...runB,C('3','♣')]);
     layContract(1, [runA, runB], [['7'], null]);
     const wrong=C('7','♠');
-    G.turn=2; G.phase='meld'; G.players[2].hand=[wrong];
+    G.turn=2; G.phase='meld'; G.players[2].hand=[wrong]; G.players[2].down=true;
     res=exchangeJoker(2, wrong, 1, 0, jk);
     ok('the 7 of the WRONG SUIT does not buy it', res.ok===false, res.why);
     ok('...and the message names the card that would', /7♥/.test(res.why), res.why);
@@ -167,23 +177,49 @@ window.addEventListener('load',()=>setTimeout(()=>{
     ok('...standing for the 3♥',
         ja.standsFor && ja.standsFor.rank==='3', JSON.stringify(ja.standsFor));
 
+    // v1.9 REVERSES THE SECOND HALF OF THIS.
+    //
+    //   "Jokers cannot be next to each other."
+    //
+    // Jo-Jo-4-5-6-7 was the answer this suite used to pin, and it is now an
+    // illegal run. Her original report stands as a report — the game DID refuse
+    // the second joker — but it refused for the wrong reason, through a
+    // declaration loop that could never be satisfied, and said nothing about
+    // why. The refusal is now the rule, stated.
+    // The second joker still goes down — just not beside the first. With
+    // Jo-4-5-6-7 on the table the front is now closed to it, so the far end is
+    // the ONLY arrangement left and it is placed there without being asked.
+    // That is the right answer to her report: the card is playable, and the
+    // game no longer poses a question with no good answer.
     res=layOff(0,[jb],0);
-    ok('THE REPORTED CASE: the second one asks too', res.need==='declare',
-        JSON.stringify(res.choices));
-    ok('...and every choice keeps the 3♥ claimed',
-        res.choices.every(ch=>ch.some(x=>/^3/.test(x))),
-        JSON.stringify(res.choices));
-    res=layOff(0,[jb],0,res.choices.find(ch=>/2♥/.test(ch.join())));
-    ok('THE FIX: answering actually places it', res.ok===true, res.why||'ok');
-    ok('...both jokers at the front', seq()==='Jo-Jo-4-5-6-7', seq());
+    ok('THE REPORTED CASE: the second joker is placed, not refused',
+        res.ok===true, res.why||'ok');
+    ok('...at the far end, with the run between them', seq()==='Jo-4-5-6-7-Jo', seq());
+    ok('...and it was not asked, there being one legal spot',
+        res.need!=='declare');
     ok('...and it is still a run', isRun(G.players[0].melds[0].cards));
-    const ranks=G.players[0].melds[0].cards.filter(c=>c.isJoker)
-                  .map(c=>c.standsFor && c.standsFor.rank).sort();
-    ok('...the two of them standing for the 2 and the 3, in some order',
-        ranks.join(',')==='2,3', ranks.join(','));
     ok('...so a 3♥ can still buy one',
         G.players[0].melds[0].cards.some(c=>c.isJoker &&
           cardBuysJoker(C('3','♥'), jokerStandsFor(G.players[0].melds[0], c))));
+
+    // ── AND WHEN NO ARRANGEMENT KEEPS THEM APART, IT SAYS SO ────────────
+    // 4-5-6-7 plus the 10 leaves 8 and 9 to be filled, and they touch. There
+    // is no other window: the naturals span 4 to 10 exactly.
+    twoJokerBoard();
+    const p1=J(), p2=J(), ten=C('10','♥');
+    G.players[0].hand=[p1, p2, ten, C('2','♦')];
+    res=layOff(0,[p1,p2,ten],0);
+    ok('two jokers that could only land together are refused',
+        res.ok===false, res.why);
+    ok('...and the refusal names the rule', /next to each other/.test(res.why||''),
+        res.why);
+    ok('...rather than asking an impossible question', res.need!=='declare');
+
+    // the rule, asked of isRun directly
+    ok('isRun: a double gap is not a run',
+        isRun([C('4','♥'),C('5','♥'),J(),J(),C('8','♥'),C('9','♥')])===false);
+    ok('isRun: single gaps apart from each other are fine',
+        isRun([C('4','♥'),J(),C('6','♥'),J(),C('8','♥')])===true);
 
     // and when only one arrangement survives, it is not asked at all
     twoJokerBoard();

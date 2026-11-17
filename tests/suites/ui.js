@@ -228,7 +228,19 @@ window.addEventListener('load',()=>setTimeout(()=>{
   G.turn=0; G.phase='meld';
   const seven7=C('7','♥');
   G.players[0].hand=[seven7, C('2','♦'), C('8','♣')];
+  // My contract has to be down before I can take anybody's joker:
+  //   "Players have to meld their contract before stealing a joker."
+  // Without this the swap is refused and the card never glows, which is the
+  // rule working — but it is not what this block is testing.
+  G.players[0].down=true;
   render();
+  ok('a joker is NOT offered before my own contract is down', (()=>{
+      G.players[0].down=false; render();
+      const before=document.querySelector('#seat-1 .card.jk');
+      const off=!before || !before.classList.contains('swappable');
+      G.players[0].down=true; render();
+      return off;
+    })());
   const jkEl=document.querySelector('#seat-1 .card.jk');
   ok('THE REPORTED CASE: the joker on the table is marked', !!jkEl);
   ok('...and glows, because I hold the 7♥',
@@ -275,6 +287,7 @@ window.addEventListener('load',()=>setTimeout(()=>{
     layContract(1,[a,b]);
     G.turn=0; G.phase='meld';
     G.players[0].hand=myCards;
+    G.players[0].down=true;   // contract first — see exchangeJoker()
     render();
     return jk3;
   }
@@ -314,6 +327,7 @@ window.addEventListener('load',()=>setTimeout(()=>{
   G.players[1].melds=[{type:'run',cards:rr}]; G.players[1].down=true;
   rj.standsFor={rank:'6',suit:'♥'};
   G.turn=0; G.phase='meld';
+  G.players[0].down=true;   // contract first — see exchangeJoker()
   G.players[0].hand=[C('6','♠')]; render();
   ok('in a RUN the suit still matters — the 6♠ does not buy the 6♥',
      !document.querySelector('#seat-1 .card.jk').classList.contains('swappable'));
@@ -660,6 +674,45 @@ window.addEventListener('load',()=>setTimeout(()=>{
   ok('...and clicking one during the draw actually sorts',
      G.players[0].hand[0].rank==='A' && G.players[0].hand[3].rank==='K',
      G.players[0].hand.map(c=>c.rank).join(','));
+
+
+  // ── EVERY MELD ON THE TABLE IS A TARGET ────────────────────────────────
+  //
+  //   "After a player melds his contract … they can place them there."
+  //
+  // The engine takes an owner now, but the engine is not what the player
+  // touches. The drop target used to be "the Nth child of #my-melds", which
+  // cannot name anybody else's meld at all.
+  startRound(0,0,4242,4);
+  document.getElementById('overlay').style.display='none';
+  G.players[1].melds=[{type:'trio',cards:[C('9','♠'),C('9','♥'),C('9','♦')]}];
+  G.players[1].down=true;
+  G.players[0].melds=[{type:'trio',cards:[C('K','♠'),C('K','♥'),C('K','♦')]}];
+  G.players[0].down=true;
+  const mine9=C('9','♣');
+  G.players[0].hand=[mine9, C('2','♦')];
+  G.turn=0; G.phase='meld'; G.roundOver=false;
+  render();
+
+  const tagged=[...document.querySelectorAll('.meld[data-owner]')];
+  ok('every meld on the table carries its owner', tagged.length>=2, tagged.length+' tagged');
+  const westMeld=document.querySelector('#seat-1 .meld[data-owner]');
+  ok('...including West\'s', !!westMeld,
+     westMeld ? 'owner='+westMeld.dataset.owner : 'none');
+
+  // droppable highlighting reaches it
+  dropTargets(true);
+  ok('...and it lights up as a drop target', !!westMeld &&
+     westMeld.classList.contains('droppable'));
+  dropTargets(false);
+
+  // tapping it lays the card off
+  selected=[mine9];
+  westMeld.click();
+  ok('THE REQUEST: tapping West\'s trio lays my 9 onto it',
+     G.players[1].melds[0].cards.includes(mine9),
+     G.players[1].melds[0].cards.map(c=>c.rank+c.suit).join(' '));
+  ok('...and it left my hand', !G.players[0].hand.includes(mine9));
 
  }catch(e){ R.push('FAIL — THREW: '+e.message+' @ '+(e.stack||'').split('\n')[1]); }
  ok('no uncaught JS errors', errs.length===0, errs.slice(0,2).join(' | '));

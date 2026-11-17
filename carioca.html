@@ -400,7 +400,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -516,7 +516,11 @@ function trioRank(cards) {
 // The order a run is HELD in does not matter — the player drops cards in and
 // the game works out whether they form one. So this asks whether the cards can
 // be ARRANGED into a run, not whether they already are.
-function isRun(cards) {
+// `allowTouchingJokers` is for DIAGNOSIS ONLY — it answers "would this have
+// been a run but for the jokers touching?", so the refusal can say which rule
+// it broke instead of the catch-all "that does not fit your run". No rule path
+// passes it.
+function isRun(cards, allowTouchingJokers) {
   if (!Array.isArray(cards) || cards.length < RUN_MIN) return false;
   if (cards.length > RANKS.length) return false;      // cannot lap the circle
   const nat = cards.filter(c => !c.isJoker);
@@ -536,7 +540,24 @@ function isRun(cards) {
     const slots = new Set();
     for (let k = 0; k < cards.length; k++) slots.add((start + k) % RANKS.length);
     if (!idx.every(i => slots.has(i))) continue;
-    if (slots.size - nat.length === jokers) return true;
+    if (slots.size - nat.length !== jokers) continue;
+    // NO TWO JOKERS SIDE BY SIDE.
+    //
+    //   "Jokers cannot be next to each other."
+    //
+    // The slots a natural does not occupy are the ones jokers fill, so two
+    // consecutive empty slots mean two jokers touching. Checked here rather
+    // than on the laid-out order because every path that builds or extends a
+    // run comes through isRun, and a rule enforced in one place cannot drift
+    // from a rule enforced in another.
+    const held = new Set(idx);
+    let adjacent = false;
+    for (let k = 0; k + 1 < cards.length; k++) {
+      const a = (start + k) % RANKS.length, b = (start + k + 1) % RANKS.length;
+      if (!held.has(a) && !held.has(b)) { adjacent = true; break; }
+    }
+    if (adjacent && !allowTouchingJokers) continue;
+    return true;
   }
   return false;
 }
@@ -591,6 +612,14 @@ function resolveRun(cards, declared) {
     if (!idx.every(i => slots.includes(i))) continue;
     const gaps = slots.filter(i => !idx.includes(i));
     if (gaps.length !== jokers.length) continue;
+    // No two jokers side by side — the same rule isRun() applies, asked of the
+    // laid-out order. Both have to agree or a run would validate and then be
+    // impossible to name, or be offered as a choice that isRun then refused.
+    let touching = false;
+    for (let k = 0; k + 1 < slots.length; k++) {
+      if (gaps.includes(slots[k]) && gaps.includes(slots[k + 1])) { touching = true; break; }
+    }
+    if (touching) continue;
     fits.push({ slots, gaps });
   }
   if (!fits.length) return null;
@@ -943,12 +972,31 @@ function layContract(seat, groups, declares) {
 // `declared` names any joker being added to a run that could sit at either
 // end — one rank per such joker. Omitted, an ambiguous add is refused and the
 // caller is told to ask.
-function layOff(seat, cards, meldIndex, declared) {
+// `ownerSeat` is whose meld is being added to, and it defaults to the player's
+// own — which is all this used to allow.
+//
+//   "After a player melds his contract, if they have cards of the same value as
+//    a trio or cards that fit into the sequence of a run on other player's
+//    melded cards, they can place them there."
+//
+// Once your contract is down the whole table is playable, not just your own
+// half of it, and that is most of what makes the later contracts finishable.
+// The placement rules do not change at all: a trio takes its own rank, a run
+// takes what extends its sequence, and the run is re-read into order afterwards
+// exactly as before. Only whose melds are reachable changes.
+function layOff(seat, cards, meldIndex, declared, ownerSeat) {
   const p = G.players[seat];
+  if (ownerSeat === undefined) ownerSeat = seat;
   if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
   if (!p.down) return { ok: false, why: 'lay your contract first' };
-  const meld = p.melds[meldIndex];
-  if (!meld) return { ok: false, why: 'no such meld of yours' };
+  const owner = G.players[ownerSeat];
+  if (!owner) return { ok: false, why: 'no such player' };
+  // Their contract has to be down too. It always is if they have melds at all,
+  // but a meld index into an empty list is the kind of thing a UI does once.
+  if (!owner.down) return { ok: false, why: 'they have not laid their contract' };
+  const meld = owner.melds[meldIndex];
+  if (!meld) return { ok: false, why: ownerSeat === seat ? 'no such meld of yours'
+                                                         : 'no such meld' };
   if (!cards.every(c => p.hand.includes(c))) return { ok: false, why: 'not in your hand' };
   // A turn ENDS with a card thrown, always:
   //
@@ -962,7 +1010,15 @@ function layOff(seat, cards, meldIndex, declared) {
   }
   const after = [...meld.cards, ...cards];
   const stillGood = meld.type === 'trio' ? isTrio(after) : isRun(after);
-  if (!stillGood) return { ok: false, why: `that does not fit your ${meld.type}` };
+  if (!stillGood) {
+    // Name the rule rather than shrug. Two jokers that would land side by side
+    // is a legal-looking move refused for a reason the player cannot see on
+    // the table, and that is exactly how the last one got reported as a bug.
+    if (meld.type === 'run' && isRun(after, true)) {
+      return { ok: false, why: 'jokers cannot be next to each other' };
+    }
+    return { ok: false, why: `that does not fit that ${meld.type}` };
+  }
 
   if (meld.type === 'run') {
     // A RUN IS KEPT IN SEQUENCE.
@@ -990,7 +1046,10 @@ function layOff(seat, cards, meldIndex, declared) {
     // could ever match. The second joker could not be placed at all.
     const want = (declared && declared.length) ? declared : held;
     const r = resolveRun(after, want.length ? want : undefined);
-    if (!r) return { ok: false, why: 'that does not fit your run' };
+    if (!r) {
+      if (isRun(after, true)) return { ok: false, why: 'jokers cannot be next to each other' };
+      return { ok: false, why: 'that does not fit that run' };
+    }
     if (r.need === 'declare') {
       // Only arrangements in which every rank already claimed is still claimed
       // by SOME joker in the run. The jokers may shuffle which of them is
@@ -1006,7 +1065,7 @@ function layOff(seat, cards, meldIndex, declared) {
         if (keep.length) choices = keep;
       }
       // Narrowed to one, there is nothing left to ask.
-      if (choices.length === 1) return layOff(seat, cards, meldIndex, choices[0]);
+      if (choices.length === 1) return layOff(seat, cards, meldIndex, choices[0], ownerSeat);
       // A joker that could cap either end is the player's choice, not ours.
       //
       //   "i just placed a joker i had in my hand, and it only took it on the
@@ -1104,6 +1163,14 @@ function cardBuysJoker(card, want) {
 function exchangeJoker(seat, card, ownerSeat, meldIndex, jokerCard) {
   const p = G.players[seat];
   if (G.turn !== seat || G.phase !== 'meld') return { ok: false, why: 'not your turn' };
+  // THE CONTRACT COMES FIRST.
+  //
+  //   "Players have to meld their contract before stealing a joker."
+  //
+  // Nothing checked this, so a player still holding their whole hand could lift
+  // a joker off somebody else's meld — the most valuable card in the game, for
+  // free, without having committed anything to the table.
+  if (!p.down) return { ok: false, why: 'lay your contract before taking a joker' };
   if (!p.hand.includes(card)) return { ok: false, why: 'not in your hand' };
   const meld = G.players[ownerSeat] && G.players[ownerSeat].melds[meldIndex];
   if (!meld) return { ok: false, why: 'no such meld' };
@@ -1544,6 +1611,15 @@ function aiDiscardChoice(seat) {
 // upgrade and it costs nothing on your own turn.
 function buysAJoker(card, seat) {
   if (arm('nojokerbuy', seat)) return null;
+  // A joker you may not take is not a reason to take the card.
+  //
+  //   "Players have to meld their contract before stealing a joker."
+  //
+  // Without this the AI would take the face-up card to buy a joker it cannot
+  // legally buy, then find exchangeJoker refusing — one card worse off, for
+  // nothing. `seat` is optional at a couple of call sites that ask about the
+  // card in the abstract; those are unchanged.
+  if (seat !== undefined && G.players[seat] && !G.players[seat].down) return null;
   for (let s = 0; s < G.seats; s++) {
     for (const m of G.players[s].melds) {
       for (const c of m.cards) {
@@ -1653,16 +1729,32 @@ function aiLayContract(seat) {
 function aiLayOff(seat) {
   const p = G.players[seat];
   let moved = true, any = false;
+  // OWN MELDS FIRST, then everybody else's.
+  //
+  // The order matters and is not arbitrary. A card that fits both your own run
+  // and an opponent's goes on your own, because a meld you own is one you can
+  // keep extending and because the opponent's gets no help it did not need.
+  // Beyond that the seats are taken in turn order, which is as good a rule as
+  // any and is at least repeatable.
+  const targets = () => {
+    const out = [];
+    const order = [seat, ...G.players.map((_, i) => i).filter(i => i !== seat)];
+    order.forEach(os => {
+      if (!G.players[os].down) return;
+      G.players[os].melds.forEach((_, mi) => out.push({ os, mi }));
+    });
+    return out;
+  };
   while (moved && p.hand.length > 1) {
     moved = false;
     for (const card of [...p.hand]) {
       if (p.hand.length <= 1) break;
-      for (let m = 0; m < p.melds.length; m++) {
-        let res = layOff(seat, [card], m);
+      for (const t of targets()) {
+        let res = layOff(seat, [card], t.mi, undefined, t.os);
         // Nobody to ask, so the AI takes the high cap, as it does when laying
         // a contract. A human is asked — see humanLayOff().
         if (res.need === 'declare' && res.choices && res.choices.length) {
-          res = layOff(seat, [card], m, res.choices[res.choices.length - 1]);
+          res = layOff(seat, [card], t.mi, res.choices[res.choices.length - 1], t.os);
         }
         if (res.ok) { moved = true; any = true; break; }
       }
@@ -1912,7 +2004,7 @@ function renderFan(host, cards, faceUp, onClick) {
         dropTargets(false);
         const hit = under(d, ev.clientX, ev.clientY);
         if (hit && hit.kind === 'meld') {
-          const res = tryLayOff([c], hit.index);
+          const res = tryLayOff([c], hit.index, undefined, hit.owner);
           // Re-draw whatever the answer was. The card has to go back to the
           // fan either way — left where the drag dropped it, it is a lifted
           // element with no job, covering anything underneath.
@@ -2005,10 +2097,10 @@ function under(dragged, x, y) {
   const e = document.elementFromPoint(x, y);
   dragged.style.pointerEvents = was;
   if (!e || !e.closest) return null;
-  const meld = e.closest('#my-melds .meld');
+  const meld = e.closest('.meld[data-owner]');
   if (meld) {
-    const i = [...el('my-melds').children].indexOf(meld);
-    if (i >= 0) return { kind: 'meld', index: i, node: meld };
+    return { kind: 'meld', index: +meld.dataset.index,
+             owner: +meld.dataset.owner, node: meld };
   }
   const disc = e.closest('#drop-discard');
   if (disc) return { kind: 'discard', node: disc };
@@ -2016,7 +2108,7 @@ function under(dragged, x, y) {
 }
 
 function dropTargets(on) {
-  [...el('my-melds').children].forEach(m => {
+  document.querySelectorAll('.meld[data-owner]').forEach(m => {
     m.classList.toggle('droppable', on);
     if (!on) m.classList.remove('over');
   });
@@ -2118,10 +2210,7 @@ function render() {
   const mm = el('my-melds');
   mm.innerHTML = '';
   G.players[ME].melds.forEach((m, i) => {
-    const e = meldEl(m, ME, i);
-    e.style.cursor = 'pointer';
-    e.addEventListener('click', () => humanLayOff(i));
-    mm.appendChild(e);
+    mm.appendChild(meldEl(m, ME, i));
   });
   // MY OWN SCORE, which was nowhere on the table.
   //
@@ -2185,6 +2274,11 @@ function render() {
 function meldEl(m, ownerSeat, meldIndex) {
   const d = document.createElement('div');
   d.className = 'meld';
+  // Whose meld this is, on the element itself. The drop target used to be
+  // "whatever index this is among #my-melds children", which cannot name a
+  // meld belonging to anybody else — and since v1.9 every meld on the table is
+  // a legal target.
+  if (ownerSeat !== undefined) { d.dataset.owner = ownerSeat; d.dataset.index = meldIndex; }
   m.cards.forEach(c => {
     const e = cardEl(c, true);
     const sf = jokerStandsFor(m, c);
@@ -2214,6 +2308,10 @@ function meldEl(m, ownerSeat, meldIndex) {
     }
     d.appendChild(e);
   });
+  if (ownerSeat !== undefined) {
+    d.style.cursor = 'pointer';
+    d.addEventListener('click', () => humanLayOff(meldIndex, ownerSeat));
+  }
   return d;
 }
 
@@ -2234,6 +2332,7 @@ function couldBuy(joker, meld) {
 // was indistinguishable from one she could not.
 function myMatchFor(joker, meld) {
   if (G.turn !== ME || G.phase !== 'meld') return null;
+  if (!G.players[ME].down) return null;   // contract first — see exchangeJoker()
   return couldBuy(joker, meld);
 }
 
@@ -2413,7 +2512,7 @@ function pickDeclaration(i, k) {
   askDeclarations(p.groups, p.declares, i + 1);
 }
 
-function humanLayOff(meldIndex) {
+function humanLayOff(meldIndex, ownerSeat) {
   if (G.turn !== ME) { banner(`It is ${SEAT_NAME[G.turn]}'s turn.`, 2600); return; }
   if (G.phase !== 'meld') { banner('Take a card first.', 2600); return; }
   // Silence was the worst part of this: clicking a meld with nothing picked up
@@ -2423,25 +2522,29 @@ function humanLayOff(meldIndex) {
          + 'drag the card onto it.', 4200);
     return;
   }
-  tryLayOff(selected, meldIndex);
+  tryLayOff(selected, meldIndex, undefined, ownerSeat);
 }
 
 // One place for both routes into a lay-off — the tap and the drag — so an
 // ambiguous joker is asked about either way.
-function tryLayOff(cards, meldIndex, declared) {
-  const res = layOff(ME, cards, meldIndex, declared);
-  if (res.need === 'declare') { showLayOffDeclare(cards, meldIndex, res.choices); return res; }
+function tryLayOff(cards, meldIndex, declared, ownerSeat) {
+  if (ownerSeat === undefined) ownerSeat = ME;
+  const res = layOff(ME, cards, meldIndex, declared, ownerSeat);
+  if (res.need === 'declare') {
+    showLayOffDeclare(cards, meldIndex, res.choices, ownerSeat); return res;
+  }
   if (!res.ok) { banner(res.why, 4000); return res; }
   selected = [];
   render();
   return res;
 }
 
-function showLayOffDeclare(cards, meldIndex, choices) {
-  const meld = G.players[ME].melds[meldIndex];
+function showLayOffDeclare(cards, meldIndex, choices, ownerSeat) {
+  if (ownerSeat === undefined) ownerSeat = ME;
+  const meld = G.players[ownerSeat].melds[meldIndex];
   const shown = meld.cards.map(c => c.isJoker ? 'Joker' : c.rank + c.suit).join('  ');
   window._loChoices = choices;
-  window._loPending = { cards, meldIndex };
+  window._loPending = { cards, meldIndex, ownerSeat };
   const after = [...meld.cards, ...cards];
   const btns = choices.map((ch, k) =>
     `<button class="action-btn" style="margin:5px;display:block;width:100%;
@@ -2449,7 +2552,8 @@ function showLayOffDeclare(cards, meldIndex, choices) {
        onclick="pickLayOffDeclaration(${k})">${choiceLine(after, ch)}</button>`).join('');
   el('overlay').innerHTML = `<div class="panel">
       <h2>Where does this run sit?</h2>
-      <p style="opacity:.85;margin:4px 0 6px;">Your run: <b>${shown}</b></p>
+      <p style="opacity:.85;margin:4px 0 6px;">${ownerSeat === ME ? 'Your run'
+        : SEAT_NAME[ownerSeat] + "'s run"}: <b>${shown}</b></p>
       <p style="opacity:.7;font-size:.84rem;margin:0 0 14px;max-width:380px;">
         Pick where the run should sit — the cards in
         <span style="color:var(--gold)">(gold)</span> are what the Jokers become,
@@ -2466,7 +2570,7 @@ function pickLayOffDeclaration(k) {
   if (!p) return;
   window._loPending = null;
   el('overlay').style.display = 'none';
-  tryLayOff(p.cards, p.meldIndex, window._loChoices[k]);
+  tryLayOff(p.cards, p.meldIndex, window._loChoices[k], p.ownerSeat);
 }
 
 function cancelLayOffDeclare() {

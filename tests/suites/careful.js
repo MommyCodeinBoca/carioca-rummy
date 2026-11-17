@@ -62,13 +62,30 @@ window.addEventListener('load',()=>setTimeout(()=>{
       G.players[1].down=true;
       G.players[2].hand=[C('K','♣'),C('4','♦'),C('5','♦'),
                          C('6','♦'),C('7','♦'),C('8','♦'),C('J','♣')];
+      // North's own contract is DOWN, because since v1.9 a joker cannot be
+      // bought before it is:
+      //   "Players have to meld their contract before stealing a joker."
+      // A trio of Queens, which the 9♦ does not fit — so wanting the card is
+      // still the joker's doing and nothing else's.
+      G.players[2].melds=[{type:'trio',cards:[C('Q','♠'),C('Q','♥'),C('Q','♦')]}];
+      G.players[2].down=true;
       G.discard=[C('9','♦')];                 // buys that joker, helps nothing else
       G.turn=2; G.phase='draw'; G.pileDead=false;
       AI_ARM = level || null;
       return jk;
     }
     let jk=jokerBoard();
-    ok('the 9♦ buys the joker on the table', !!buysAJoker(topOfDiscard()));
+    ok('the 9♦ buys the joker on the table', !!buysAJoker(topOfDiscard(), 2));
+    ok('...and the 9♦ does not fit North\'s own melds',
+        fitsOwnMeld(G.players[2], topOfDiscard())===false);
+
+    // THE RULE: not before the contract is down.
+    jokerBoard();
+    G.players[2].down=false; G.players[2].melds=[];
+    ok('a joker is no reason to take the card before my contract is down',
+        buysAJoker(topOfDiscard(), 2)===null);
+    ok('...so North leaves it', aiWantsDiscard(2)===false);
+    jk=jokerBoard();
     ok('...and the contract does not otherwise want it',
         cardHelps(G.players[2].hand, topOfDiscard(), contract())===0,
         String(cardHelps(G.players[2].hand, topOfDiscard(), contract())));
