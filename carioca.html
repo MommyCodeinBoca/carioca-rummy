@@ -400,7 +400,7 @@ body {
 // to it, in her words, are quoted at the rule they settle.
 // ════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.9';
+const APP_VERSION = '1.10';
 
 // ── THE DECK ────────────────────────────────────────────────────────────
 //   "2 decks of 52 cards including the 4 jokers are used for 2 to 5 players.
@@ -492,7 +492,18 @@ function isTrio(cards) {
   const nat = cards.filter(c => !c.isJoker);
   if (nat.length === 0) return false;
   const rank = nat[0].rank;
-  return nat.every(c => c.rank === rank);
+  if (!nat.every(c => c.rank === rank)) return false;
+  // ONE JOKER IN A TRIO OF THREE.
+  //
+  //   "a trio can only have one joker yes correct if only 3"
+  //
+  // Tied to the size, which is what she said — three cards carry one joker, so
+  // the smallest trio is always two real cards and a stand-in. A trio that has
+  // GROWN past three is not limited here; the run rule about jokers touching
+  // has no meaning for a trio, where the cards have no order to be next to
+  // each other in.
+  if (cards.length === TRIO_MIN && cards.length - nat.length > 1) return false;
+  return true;
 }
 
 function trioRank(cards) {
@@ -1299,6 +1310,18 @@ function runWindows(hand) {
       for (let k = 0; k < RUN_MIN; k++) ranks.push(RANKS[(start + k) % RANKS.length]);
       const have = ranks.filter(r => (sup.exact.get(r + '|' + suit) || 0) > 0);
       if (!have.length) continue;
+      // NOR A WINDOW WHOSE JOKERS WOULD TOUCH.
+      //
+      //   "Jokers cannot be next to each other."
+      //
+      // The ranks this hand cannot cover are the ones jokers fill. Two missing
+      // in a row is two jokers in a row, which isRun now refuses — so planning
+      // around such a window would promise a contract that cannot be laid.
+      let touching = false;
+      for (let k = 0; k + 1 < ranks.length; k++) {
+        if (!have.includes(ranks[k]) && !have.includes(ranks[k + 1])) { touching = true; break; }
+      }
+      if (touching) continue;
       const key = suit + ':' + have.join(',');
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1332,41 +1355,67 @@ function readHand(hand, con) {
     // Each rank offers floor-ish as many trios as it can fill, biggest first,
     // and the richest `con.trios` of all of them are taken. The ranks do not
     // compete for each other's cards, so there is nothing to search.
-    const slots = [];
-    sup.rank.forEach((n, r) => {
-      let left = n;
-      while (left > 0) {
-        const take = Math.min(TRIO_MIN, left);
-        slots.push({ r, n: take });
-        left -= take;
+    // HOW MANY TRIOS A RANK CAN GIVE, AND HOW BIG EACH ONE IS.
+    //
+    // This used to chop each rank into greedy threes with whatever was left
+    // over trailing behind: four Aces became a trio of three and a lone one.
+    // That lone card was a legal trio while one natural and two jokers was a
+    // trio, and v1.9 ended that —
+    //
+    //   "a trio can only have one joker yes correct if only 3"
+    //
+    // — so four Aces and two jokers, which is plainly two trios, was read as
+    // one trio and a stranded card and the contract was refused. Four Aces
+    // have to split 2 and 2.
+    //
+    // Whether 3+1 or 2+2 is right depends on how many trios are wanted and how
+    // many jokers are held, so it is chosen rather than assumed: take k trios
+    // from a rank holding n, which needs 2k naturals and uses min(3k, n) of
+    // them, and search the combinations. con.trios is at most three and there
+    // are at most thirteen ranks, so the search is tiny.
+    const bank = [...sup.rank.entries()].filter(([, n]) => n >= TRIO_MIN - 1);
+    let take = null;
+    const consider = (naturals, picks) => {
+      const filled = picks.reduce((t, x) => t + x.k, 0);
+      // More trios actually filled beats more naturals: an unfilled trio has
+      // to be covered by jokers that are counted once, globally.
+      const better = !take || filled > take.filled ||
+        (filled === take.filled && naturals > take.naturals) ||
+        // WHEN TWO READINGS TIE, SPREAD ACROSS RANKS.
+        //
+        //   "it took my six Ks and split them into 2 trios ... i intended to
+        //    lay down 3 more cards"
+        //
+        // Six Ks and three 10s both read as six naturals. Spread over two
+        // ranks, the spare Ks can be laid onto the K trio afterwards; taken as
+        // two K trios, the 10s are stuck in hand with nowhere to go.
+        (filled === take.filled && naturals === take.naturals &&
+         picks.length > take.picks.length);
+      if (better) take = { naturals, filled, picks: picks.map(x => ({ ...x })) };
+    };
+    const walk = (i, left, naturals, picks) => {
+      if (left === 0 || i >= bank.length) { consider(naturals, picks); return; }
+      const [r, n] = bank[i];
+      const maxK = Math.min(left, Math.floor(n / (TRIO_MIN - 1)));
+      for (let k = maxK; k >= 1; k--) {
+        picks.push({ r, k, n: Math.min(TRIO_MIN * k, n) });
+        walk(i + 1, left - k, naturals + Math.min(TRIO_MIN * k, n), picks);
+        picks.pop();
+      }
+      walk(i + 1, left, naturals, picks);     // skip this rank
+    };
+    walk(0, con.trios, 0, []);
+    // One entry per trio, which is what everything downstream expects.
+    const picked = [];
+    (take ? take.picks : []).forEach(x => {
+      let leftNat = x.n;
+      for (let g = 0; g < x.k; g++) {
+        const groupsAfter = x.k - g - 1;
+        const nThis = Math.min(TRIO_MIN, leftNat - (TRIO_MIN - 1) * groupsAfter);
+        picked.push({ r: x.r, n: nThis });
+        leftNat -= nThis;
       }
     });
-    // WHEN TWO CHOICES TIE, SPREAD ACROSS RANKS.
-    //
-    //   "it took my six Ks and split them into 2 trios ... i intended to lay
-    //    down 3 more cards"
-    //
-    // Six Ks and three 10s on a two-trio contract. Both readings use six
-    // naturals, so the sort was deciding it on hand order alone — Ks first and
-    // it took two K trios, leaving the 10s stranded in her hand with nowhere
-    // to go. The other way round it took the 10s and the Ks, and the three
-    // spare Ks then went onto the K trio as lay-offs.
-    //
-    // Same contract, three more cards off her hand, and the only difference
-    // was which rank she happened to be holding on the left. A second trio of
-    // a rank already taken buys nothing the first one cannot: spare cards of a
-    // laid rank can always be added later, while an unlaid rank's cards are
-    // stuck. So among slots of equal size, one of a rank not yet used wins.
-    const picked = [];
-    const pool = slots.sort((a, b) => b.n - a.n);
-    const usedRanks = new Set();
-    while (picked.length < con.trios && pool.length) {
-      const best = pool[0].n;
-      let i = pool.findIndex(x => x.n === best && !usedRanks.has(x.r));
-      if (i < 0) i = 0;                       // every tie is a repeat; take one
-      usedRanks.add(pool[i].r);
-      picked.push(pool.splice(i, 1)[0]);
-    }
     const trioNaturals = picked.reduce((t, x) => t + x.n, 0);
     const used = runNaturals + trioNaturals;
     if (used > best.used) {
@@ -1374,9 +1423,10 @@ function readHand(hand, con) {
     }
   };
 
-  const takeRun = (sup, w) => {
+  const takeRun = (sup, w, skip) => {
     const taken = [];
     w.ranks.forEach(r => {
+      if (skip && skip.includes(r)) return;    // left behind for a trio
       const k = r + '|' + w.suit;
       if ((sup.exact.get(k) || 0) > 0) {
         sup.exact.set(k, sup.exact.get(k) - 1);
@@ -1403,8 +1453,42 @@ function readHand(hand, con) {
     let any = false;
     for (let k = from; k < windows.length; k++) {
       const w = windows[k];
-      const taken = takeRun(sup, w);
+      // A RUN MAY DECLINE A CARD A TRIO CANNOT SPARE.
+      //
+      // Taking every natural it can reach is usually right and was always
+      // assumed. It stopped being safe when a trio of three came to need two
+      // real cards: with 8♠ 9♠ 10♠ 10♠ J♠ and two jokers, grabbing all four
+      // naturals for 8-9-10-J leaves ONE ten, which is no longer a trio, and
+      // the hand was refused — though it is plainly 10♠ 10♠ Jo and 8♠ 9♠ Jo J♠.
+      //
+      // So a rank the run would knock from two down to one is also tried left
+      // behind, with a joker standing in its place. Only those ranks: anything
+      // else is a card the trios never wanted.
+      // Any ONE card it can spare, not only the ones a trio wants. The other
+      // reason to decline is a run still to come out of the same window: with
+      // 10♠ 10♠ J♠ Q♠ K♠ K♠ and two jokers, taking all four for the first run
+      // leaves 10 and K for the second, whose gaps at J and Q sit side by side
+      // and are therefore two jokers side by side. Declining the Q first
+      // splits it 10-J-[Q]-K and 10-[J]-Q-K, which is two legal runs.
+      //
+      // One at a time, and only ranks actually there: every deeper combination
+      // this misses is a hand that would need two separate concessions from
+      // one window, and the search has to stop somewhere.
+      const present = w.ranks.filter(r => (sup.exact.get(r + '|' + w.suit) || 0) > 0);
+      const variants = [null].concat(present.map(r => [r]));
+      for (const skip of variants) {
+      const taken = takeRun(sup, w, skip);
+      // Leaving one behind widens the gaps, and two gaps side by side is two
+      // jokers side by side — which isRun refuses.
+      let touching = false;
       if (taken.length) {
+        for (let q = 0; q + 1 < w.ranks.length; q++) {
+          if (!taken.includes(w.ranks[q]) && !taken.includes(w.ranks[q + 1])) {
+            touching = true; break;
+          }
+        }
+      }
+      if (taken.length && !touching) {
         any = true;
         chosen.push({ suit: w.suit, ranks: w.ranks, taken });
         // `k`, not `k + 1`: the SAME window may be taken twice. Two decks hold
@@ -1416,6 +1500,7 @@ function readHand(hand, con) {
         chosen.pop();
       }
       putRun(sup, w, taken);
+      }
     }
     if (!any) finishWithTrios(sup, chosen, naturals);   // a hand with no run at all
   };
@@ -1458,14 +1543,33 @@ function buildContract(hand, con, extend) {
   read.plan.runs.forEach(r => {
     const cards = [], gaps = [];
     r.ranks.forEach(rank => {
-      const c = takeExact(rank, r.suit);
+      // `taken` is the plan's choice, and it is not always every rank the hand
+      // could cover: a run declines a card a trio cannot spare — see
+      // chooseRuns. Re-deriving it greedily here took that card back and
+      // stranded the trio all over again, one layer down.
+      const wanted = !r.taken || r.taken.includes(rank);
+      const c = wanted ? takeExact(rank, r.suit) : null;
       if (c) cards.push(c); else gaps.push(rank);
     });
     groups.push({ kind: 'run', cards, jokers: gaps.length });
   });
-  read.plan.trios.forEach(rank => {
+  // TWO TRIOS OF ONE RANK SHARE ITS CARDS EVENLY.
+  //
+  // Taking three for the first trio and whatever is left for the second is
+  // what stranded four Aces: the first got three and the second got one, which
+  // since v1.9 is not a trio at all —
+  //
+  //   "a trio can only have one joker yes correct if only 3"
+  //
+  // — so buildContract's own sanity check then threw the whole contract away
+  // and the hand was refused. Each group leaves two behind for every group of
+  // its rank still to come, which splits four as 2 and 2 and six as 3 and 3.
+  read.plan.trios.forEach((rank, i) => {
+    const after = read.plan.trios.slice(i + 1).filter(r => r === rank).length;
+    const avail = pool.filter(c => c.rank === rank).length;
+    const want = Math.max(0, Math.min(TRIO_MIN, avail - (TRIO_MIN - 1) * after));
     const cards = [];
-    for (let k = 0; k < TRIO_MIN; k++) { const c = takeRank(rank); if (c) cards.push(c); }
+    for (let k = 0; k < want; k++) { const c = takeRank(rank); if (c) cards.push(c); }
     groups.push({ kind: 'trio', cards, jokers: TRIO_MIN - cards.length });
   });
   groups.sort((a, b) => b.jokers - a.jokers);
